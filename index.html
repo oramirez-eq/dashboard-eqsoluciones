@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Ejecutivo — EQSolutions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700;800;900&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #F0F4F9; font-family: 'Nunito Sans', sans-serif; }
+    @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    @keyframes spin   { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #F0F4F9; }
+    ::-webkit-scrollbar-thumb { background: #DDE6F0; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+    const {
+      BarChart, Bar, LineChart, Line,
+      XAxis, YAxis, CartesianGrid, Tooltip,
+      ResponsiveContainer
+    } = Recharts;
+
+    // ── PALETA EQSolutions ────────────────────────────────────────────────────
+    const EQ = {
+      azulOscuro:   "#1B2E4B",
+      azulBorde:    "#DDE6F0",
+      turquesa:     "#00B5BE",
+      turquesaGlow: "#00B5BE22",
+      grisClaro:    "#F0F4F9",
+      grisMedio:    "#6B87A8",
+      verde:        "#16A97A",
+      amarillo:     "#D4A012",
+      rojo:         "#E03355",
+      fondoPagina:  "#F0F4F9",
+    };
+
+    // ── CONFIGURACIÓN MICROSOFT GRAPH API ─────────────────────────────────────
+    const MSAL_CONFIG = {
+      clientId:    "f364c631-d024-4931-9146-e169268edfa8",
+      tenantId:    "18417441-40a1-41fb-a1a1-13ceadd73586",
+      redirectUri: "https://eqsolutionsec.sharepoint.com",
+    };
+    const GRAPH_SCOPES = ["Files.Read.All", "Sites.Read.All", "User.Read"];
+    const GRAPH_BASE   = "https://graph.microsoft.com/v1.0";
+
+    // ── RUTAS REALES POR ÁREA EN ONEDRIVE (Facundo Scavone) ───────────────────
+    const DRIVE_OWNER = "fscavone@eqsoluciones.com";
+
+    const AREA_PATHS = {
+      TICs:           "/Documents/9. TIC/V. Acompañamiento/Lukmar/Indicadores",
+      Contabilidad:   null,   // ← agregar ruta cuando esté disponible
+      Finanzas:       null,
+      Abastecimiento: null,
+      RRHH:           null,
+    };
+
+    // Nombres exactos de archivos Excel por área (sin extensión .xlsx)
+    const KPI_FILES = {
+      TICs:           ["LKM Atención a usuarios","LKM Confiabilidad Internet","LKM Cumplimiento Actividades"],
+      Contabilidad:   ["Cumplimiento_Cierre","Lead_Time_Impuestos","Cumplimiento_Auditorias"],
+      Finanzas:       ["Cumplimiento_Pago_Proveedores","Evolucion_Cartera","Cartera_Vencida"],
+      Abastecimiento: ["Lead_Time_Compras","Ahorros","Proveedores_Activos","OTIF","Confiabilidad_Inventarios","Obsolescencias","Inventario"],
+      RRHH:           ["Sobretiempos","Tiempos_Contratacion","Rotacion","Capacitaciones"],
+    };
+
+    const KPI_META = {
+      "LKM Atención a usuarios":      {id:1,  nombre:"Atención a Usuario",       unidad:"%", desc:"Tickets resueltos / Total tickets"},
+      "LKM Confiabilidad Internet":    {id:2,  nombre:"Confiabilidad de Internet", unidad:"%", desc:"Uptime mensual del servicio"},
+      "LKM Cumplimiento Actividades":  {id:3,  nombre:"Cumplimiento Actividades",  unidad:"%", desc:"Actividades completadas / planificadas"},
+      Cumplimiento_Cierre:           {id:4,  nombre:"Cumplimiento al Cierre",    unidad:"%", desc:"Cierres contables completados a tiempo"},
+      Lead_Time_Impuestos:           {id:5,  nombre:"Lead Time de Impuestos",    unidad:"d", desc:"Días promedio para declaración"},
+      Cumplimiento_Auditorias:       {id:6,  nombre:"Cumplimiento Auditorías",   unidad:"%", desc:"Hallazgos cerrados / total"},
+      Cumplimiento_Pago_Proveedores: {id:7,  nombre:"Cumpl. Pago Proveedores",   unidad:"%", desc:"Pagos a tiempo / total pagos"},
+      Evolucion_Cartera:             {id:8,  nombre:"Evolución Cartera Mes",     unidad:"$", desc:"Saldo total de cartera activa"},
+      Cartera_Vencida:               {id:9,  nombre:"Cartera Vencida",           unidad:"%", desc:"Cartera vencida / total cartera"},
+      Lead_Time_Compras:             {id:10, nombre:"Lead Time Compras",         unidad:"d", desc:"Días promedio del proceso de compra"},
+      Ahorros:                       {id:11, nombre:"Ahorros",                   unidad:"$", desc:"Ahorros acumulados en negociaciones"},
+      Proveedores_Activos:           {id:12, nombre:"Proveedores Activos",       unidad:"#", desc:"Proveedores habilitados y activos"},
+      OTIF:                          {id:13, nombre:"OTIF",                      unidad:"%", desc:"On Time In Full — entregas"},
+      Confiabilidad_Inventarios:     {id:14, nombre:"Confiabilidad Inventarios", unidad:"%", desc:"Exactitud en conteo de inventario"},
+      Obsolescencias:                {id:15, nombre:"Obsolescencias",            unidad:"%", desc:"% inventario obsoleto sobre total"},
+      Inventario:                    {id:16, nombre:"Inventario",                unidad:"$", desc:"Valor total del inventario"},
+      Sobretiempos:                  {id:17, nombre:"Sobretiempos",              unidad:"%", desc:"Horas extra / total horas trabajadas"},
+      Tiempos_Contratacion:          {id:18, nombre:"Tiempos de Contratación",   unidad:"d", desc:"Días promedio para cubrir vacante"},
+      Rotacion:                      {id:19, nombre:"Rotación",                  unidad:"%", desc:"Rotación mensual de personal"},
+      Capacitaciones:                {id:20, nombre:"Capacitaciones",            unidad:"%", desc:"Personal capacitado / total personal"},
+    };
+
+    // ── DATOS DEMO ────────────────────────────────────────────────────────────
+    const DEMO_DATA = {
+      TICs: [
+        {id:1,  nombre:"Atención a Usuario",       valor:87,      meta:90,      unidad:"%", trend:[72,78,80,85,87],                         semaforo:"amarillo", desc:"Tickets resueltos / Total tickets"},
+        {id:2,  nombre:"Confiabilidad de Internet", valor:99.2,    meta:99.5,    unidad:"%", trend:[98,99,98.5,99.1,99.2],                    semaforo:"amarillo", desc:"Uptime mensual del servicio"},
+        {id:3,  nombre:"Cumplimiento Actividades",  valor:94,      meta:95,      unidad:"%", trend:[88,90,91,93,94],                          semaforo:"amarillo", desc:"Actividades completadas / planificadas"},
+      ],
+      Contabilidad: [
+        {id:4,  nombre:"Cumplimiento al Cierre",    valor:100,     meta:100,     unidad:"%", trend:[95,97,98,100,100],                        semaforo:"verde",    desc:"Cierres contables completados a tiempo"},
+        {id:5,  nombre:"Lead Time de Impuestos",    valor:4,       meta:3,       unidad:"d", trend:[6,5,5,4,4],                               semaforo:"amarillo", desc:"Días promedio para declaración"},
+        {id:6,  nombre:"Cumplimiento Auditorías",   valor:92,      meta:95,      unidad:"%", trend:[80,84,88,90,92],                          semaforo:"amarillo", desc:"Hallazgos cerrados / total"},
+      ],
+      Finanzas: [
+        {id:7,  nombre:"Cumpl. Pago Proveedores",   valor:96,      meta:98,      unidad:"%", trend:[90,92,93,95,96],                          semaforo:"amarillo", desc:"Pagos a tiempo / total pagos"},
+        {id:8,  nombre:"Evolución Cartera Mes",     valor:1250000, meta:1100000, unidad:"$", trend:[980000,1050000,1100000,1200000,1250000],  semaforo:"rojo",     desc:"Saldo total de cartera activa"},
+        {id:9,  nombre:"Cartera Vencida",           valor:8.2,     meta:5,       unidad:"%", trend:[12,10,9.5,9,8.2],                         semaforo:"rojo",     desc:"Cartera vencida / total cartera"},
+      ],
+      Abastecimiento: [
+        {id:10, nombre:"Lead Time Compras",         valor:12,      meta:10,      unidad:"d", trend:[18,16,14,13,12],                          semaforo:"amarillo", desc:"Días promedio del proceso de compra"},
+        {id:11, nombre:"Ahorros",                   valor:320000,  meta:300000,  unidad:"$", trend:[210000,240000,270000,300000,320000],       semaforo:"verde",    desc:"Ahorros acumulados en negociaciones"},
+        {id:12, nombre:"Proveedores Activos",       valor:145,     meta:150,     unidad:"#", trend:[130,135,138,142,145],                     semaforo:"amarillo", desc:"Proveedores habilitados y activos"},
+        {id:13, nombre:"OTIF",                      valor:88,      meta:95,      unidad:"%", trend:[78,81,84,86,88],                          semaforo:"rojo",     desc:"On Time In Full — entregas"},
+        {id:14, nombre:"Confiabilidad Inventarios", valor:97,      meta:98,      unidad:"%", trend:[93,94,95,96,97],                          semaforo:"amarillo", desc:"Exactitud en conteo de inventario"},
+        {id:15, nombre:"Obsolescencias",            valor:3.1,     meta:2,       unidad:"%", trend:[5.2,4.8,4.1,3.5,3.1],                    semaforo:"rojo",     desc:"% inventario obsoleto sobre total"},
+        {id:16, nombre:"Inventario",                valor:4800000, meta:4500000, unidad:"$", trend:[4200000,4400000,4600000,4750000,4800000], semaforo:"rojo",     desc:"Valor total del inventario"},
+      ],
+      RRHH: [
+        {id:17, nombre:"Sobretiempos",              valor:6.4,     meta:5,       unidad:"%", trend:[9,8,7.5,7,6.4],                           semaforo:"rojo",     desc:"Horas extra / total horas trabajadas"},
+        {id:18, nombre:"Tiempos de Contratación",   valor:22,      meta:20,      unidad:"d", trend:[30,28,26,24,22],                          semaforo:"amarillo", desc:"Días promedio para cubrir vacante"},
+        {id:19, nombre:"Rotación",                  valor:4.2,     meta:3,       unidad:"%", trend:[6.5,5.8,5.2,4.8,4.2],                    semaforo:"rojo",     desc:"Rotación mensual de personal"},
+        {id:20, nombre:"Capacitaciones",            valor:91,      meta:90,      unidad:"%", trend:[75,80,85,88,91],                          semaforo:"verde",    desc:"Personal capacitado / total personal"},
+      ],
+    };
+
+    // ── AUTH MICROSOFT ────────────────────────────────────────────────────────
+    async function msalLogin() {
+      const authUrl = `https://login.microsoftonline.com/${MSAL_CONFIG.tenantId}/oauth2/v2.0/authorize`
+        + `?client_id=${MSAL_CONFIG.clientId}`
+        + `&response_type=token`
+        + `&redirect_uri=${encodeURIComponent(MSAL_CONFIG.redirectUri)}`
+        + `&scope=${encodeURIComponent(GRAPH_SCOPES.join(" "))}`
+        + `&response_mode=fragment`
+        + `&nonce=${Math.random().toString(36).slice(2)}`;
+      return new Promise((resolve, reject) => {
+        const popup = window.open(authUrl, "msalLogin", "width=500,height=650");
+        const timer = setInterval(() => {
+          try {
+            if (popup.closed) { clearInterval(timer); reject(new Error("Popup cerrado")); return; }
+            const hash = popup.location.hash;
+            if (hash && hash.includes("access_token")) {
+              clearInterval(timer); popup.close();
+              const params = new URLSearchParams(hash.slice(1));
+              resolve(params.get("access_token"));
+            }
+          } catch(_) {}
+        }, 300);
+      });
+    }
+
+    async function readExcelKPI(token, area, fileName) {
+      // Acceder al OneDrive de fscavone via /users/{email}/drive
+      const basePath = AREA_PATHS[area];
+      if (!basePath) throw new Error(`Ruta de ${area} no configurada aún`);
+
+      const filePath  = `${basePath}/${fileName}.xlsx`;
+      const driveUrl  = `${GRAPH_BASE}/users/${encodeURIComponent(DRIVE_OWNER)}/drive/root:${encodeURIComponent(filePath)}`;
+      const itemRes   = await fetch(driveUrl, { headers:{ Authorization:`Bearer ${token}` } });
+      if (!itemRes.ok) {
+        const err = await itemRes.json().catch(()=>({}));
+        throw new Error(`No encontrado: ${fileName}.xlsx — ${err?.error?.message||itemRes.status}`);
+      }
+      const item = await itemRes.json();
+
+      // Leer rango usado de Hoja1
+      // Estructura esperada: Col A=Mes, Col B=Valor, Col C=Meta
+      const rangeUrl  = `${GRAPH_BASE}/users/${encodeURIComponent(DRIVE_OWNER)}/drive/items/${item.id}/workbook/worksheets/Hoja1/usedRange`;
+      const rangeRes  = await fetch(rangeUrl, { headers:{ Authorization:`Bearer ${token}` } });
+      if (!rangeRes.ok) throw new Error(`Error leyendo contenido de: ${fileName}`);
+      const range     = await rangeRes.json();
+      const rows      = (range.values||[]).slice(1).filter(r => r[0] && r[1] !== undefined);
+      const trend     = rows.map(r => parseFloat(r[1])||0);
+      const valor     = trend[trend.length-1] ?? 0;
+      const meta      = parseFloat(rows[rows.length-1]?.[2]) || 0;
+      const inv       = ["LKM Confiabilidad Internet","Lead_Time_Impuestos","Lead_Time_Compras",
+                         "Tiempos_Contratacion","Sobretiempos","Rotacion",
+                         "Cartera_Vencida","Obsolescencias","Inventario","Evolucion_Cartera"];
+      const pct       = inv.includes(fileName) ? (meta/valor) : (valor/meta);
+      const semaforo  = pct >= 1 ? "verde" : pct >= 0.9 ? "amarillo" : "rojo";
+      return { ...KPI_META[fileName], valor, meta, trend, semaforo };
+    }
+
+    // ── HELPERS ───────────────────────────────────────────────────────────────
+    const AREAS     = ["Gerencial","TICs","Contabilidad","Finanzas","Abastecimiento","RRHH"];
+    const areaIcons = {TICs:"⚙️", Contabilidad:"📒", Finanzas:"💰", Abastecimiento:"📦", RRHH:"👥"};
+    const meses     = ["Ene","Feb","Mar","Abr","May"];
+    const sColor    = s => s==="verde"?EQ.verde:s==="amarillo"?EQ.amarillo:EQ.rojo;
+    const fVal      = (v,u) => {
+      if(u==="$") return `$${v>=1000000?(v/1000000).toFixed(1)+"M":(v/1000).toFixed(0)+"K"}`;
+      if(u==="#") return `${v}`;
+      return `${v}${u}`;
+    };
+
+    // ── KPI CARD ──────────────────────────────────────────────────────────────
+    function KPICard({kpi}) {
+      const color     = sColor(kpi.semaforo);
+      const chartData = (kpi.trend||[]).map((v,i)=>({mes:meses[i]||`M${i+1}`,valor:v}));
+      const pct       = Math.min(Math.round((kpi.valor/kpi.meta)*100),100);
+      const [hov, setHov] = useState(false);
+      return (
+        <div onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
+          background:"#FFF", border:`1px solid ${hov?EQ.turquesa:EQ.azulBorde}`,
+          borderRadius:14, padding:"18px 20px", display:"flex", flexDirection:"column", gap:10,
+          position:"relative", overflow:"hidden",
+          transform: hov?"translateY(-3px)":"translateY(0)",
+          boxShadow: hov?`0 8px 24px ${EQ.turquesaGlow}`:"0 1px 4px rgba(27,46,75,0.06)",
+          transition:"all 0.25s ease", cursor:"default",
+        }}>
+          <div style={{position:"absolute",top:0,left:0,width:4,height:"100%",background:color,borderRadius:"14px 0 0 14px"}}/>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",paddingLeft:6}}>
+            <span style={{color:EQ.grisMedio,fontSize:10,letterSpacing:"0.06em",textTransform:"uppercase",maxWidth:"72%",lineHeight:1.4}}>{kpi.desc}</span>
+            <span style={{background:color+"22",color,fontSize:9,fontWeight:800,padding:"3px 8px",borderRadius:20,border:`1px solid ${color}55`,whiteSpace:"nowrap"}}>
+              {kpi.semaforo==="verde"?"✓ OK":kpi.semaforo==="amarillo"?"⚡ ALERTA":"✕ CRÍTICO"}
+            </span>
+          </div>
+          <div style={{fontSize:14,fontWeight:700,color:EQ.azulOscuro,paddingLeft:6}}>{kpi.nombre}</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:10,paddingLeft:6}}>
+            <span style={{fontSize:28,fontWeight:900,color,fontFamily:"monospace",lineHeight:1}}>{fVal(kpi.valor,kpi.unidad)}</span>
+            <span style={{fontSize:11,color:EQ.grisMedio}}>/ meta {fVal(kpi.meta,kpi.unidad)}</span>
+          </div>
+          <div style={{paddingLeft:6}}>
+            <div style={{height:4,background:EQ.grisClaro,borderRadius:4,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${pct}%`,background:color,borderRadius:4}}/>
+            </div>
+            <span style={{fontSize:10,color:EQ.grisMedio,marginTop:2,display:"block"}}>{pct}% de la meta</span>
+          </div>
+          <div style={{height:46}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <Line type="monotone" dataKey="valor" stroke={color} strokeWidth={2} dot={false}/>
+                <XAxis dataKey="mes" tick={{fill:EQ.grisMedio,fontSize:9}} axisLine={false} tickLine={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+
+    // ── AREA RESUMEN CARD ─────────────────────────────────────────────────────
+    function AreaResumenCard({area, kpis, onClick}) {
+      const v=kpis.filter(k=>k.semaforo==="verde").length;
+      const a=kpis.filter(k=>k.semaforo==="amarillo").length;
+      const r=kpis.filter(k=>k.semaforo==="rojo").length;
+      const pct=Math.round((v/kpis.length)*100);
+      const [hov,setHov]=useState(false);
+      return (
+        <div onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{
+          background:"#FFF", border:`1px solid ${hov?EQ.turquesa:EQ.azulBorde}`,
+          borderRadius:14, padding:"18px 20px", cursor:"pointer",
+          boxShadow: hov?`0 0 16px ${EQ.turquesaGlow}`:"0 1px 4px rgba(27,46,75,0.06)",
+          transition:"all 0.2s",
+        }}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:20}}>{areaIcons[area]}</span>
+              <span style={{color:EQ.azulOscuro,fontWeight:700,fontSize:14}}>{area}</span>
+            </div>
+            <span style={{fontFamily:"monospace",fontSize:22,fontWeight:900,color:pct>=70?EQ.verde:pct>=40?EQ.amarillo:EQ.rojo}}>{pct}%</span>
+          </div>
+          <div style={{display:"flex",gap:3,marginBottom:10}}>
+            {kpis.map((k,i)=><div key={i} style={{flex:1,height:5,borderRadius:3,background:sColor(k.semaforo)}}/>)}
+          </div>
+          <div style={{display:"flex",gap:14}}>
+            <span style={{fontSize:11,color:EQ.verde}}>✓ {v} OK</span>
+            <span style={{fontSize:11,color:EQ.amarillo}}>⚡ {a}</span>
+            <span style={{fontSize:11,color:EQ.rojo}}>✕ {r}</span>
+          </div>
+        </div>
+      );
+    }
+
+    // ── VISTA GERENCIAL ───────────────────────────────────────────────────────
+    function GerencialView({kpiData, setArea}) {
+      const all=Object.values(kpiData).flat(), total=all.length;
+      const v=all.filter(k=>k.semaforo==="verde").length;
+      const a=all.filter(k=>k.semaforo==="amarillo").length;
+      const r=all.filter(k=>k.semaforo==="rojo").length;
+      const barData=Object.keys(kpiData).map(area=>({
+        area,
+        "En Meta":  kpiData[area].filter(k=>k.semaforo==="verde").length,
+        "Alerta":   kpiData[area].filter(k=>k.semaforo==="amarillo").length,
+        "Crítico":  kpiData[area].filter(k=>k.semaforo==="rojo").length,
+      }));
+      return (
+        <div style={{display:"flex",flexDirection:"column",gap:24}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
+            {[{label:"Total KPIs",val:total,color:EQ.turquesa},{label:"En Meta",val:v,color:EQ.verde},{label:"En Alerta",val:a,color:EQ.amarillo},{label:"Críticos",val:r,color:EQ.rojo}].map(m=>(
+              <div key={m.label} style={{background:"#FFF",border:`1px solid ${EQ.azulBorde}`,borderRadius:14,padding:"20px 24px",position:"relative",overflow:"hidden",boxShadow:"0 1px 4px rgba(27,46,75,0.06)"}}>
+                <div style={{position:"absolute",top:0,right:0,width:56,height:56,background:m.color+"11",borderRadius:"0 14px 0 56px"}}/>
+                <div style={{color:EQ.grisMedio,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{m.label}</div>
+                <div style={{fontSize:44,fontWeight:900,color:m.color,fontFamily:"monospace",lineHeight:1}}>{m.val}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{background:"#FFF",border:`1px solid ${EQ.azulBorde}`,borderRadius:14,padding:"20px 24px",boxShadow:"0 1px 4px rgba(27,46,75,0.06)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+              <span style={{color:EQ.grisMedio,fontSize:11,textTransform:"uppercase",letterSpacing:"0.1em"}}>Salud Global del Negocio</span>
+              <span style={{color:EQ.turquesa,fontSize:12,fontWeight:700}}>{Math.round(v/total*100)}% en meta</span>
+            </div>
+            <div style={{display:"flex",height:14,borderRadius:8,overflow:"hidden",gap:3}}>
+              <div style={{flex:v,background:`linear-gradient(90deg,${EQ.verde},#16a875)`}}/>
+              <div style={{flex:a,background:`linear-gradient(90deg,${EQ.amarillo},#d4a80f)`}}/>
+              <div style={{flex:r,background:`linear-gradient(90deg,${EQ.rojo},#cc2444)`}}/>
+            </div>
+            <div style={{display:"flex",gap:24,marginTop:10}}>
+              <span style={{fontSize:12,color:EQ.verde}}>■ En Meta {Math.round(v/total*100)}%</span>
+              <span style={{fontSize:12,color:EQ.amarillo}}>■ Alerta {Math.round(a/total*100)}%</span>
+              <span style={{fontSize:12,color:EQ.rojo}}>■ Crítico {Math.round(r/total*100)}%</span>
+            </div>
+          </div>
+          <div>
+            <div style={{color:EQ.grisMedio,fontSize:11,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>
+              Resumen por Área — <span style={{color:EQ.turquesa}}>clic para ver detalle</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
+              {Object.keys(kpiData).map(area=><AreaResumenCard key={area} area={area} kpis={kpiData[area]} onClick={()=>setArea(area)}/>)}
+            </div>
+          </div>
+          <div style={{background:"#FFF",border:`1px solid ${EQ.azulBorde}`,borderRadius:14,padding:"20px 24px",boxShadow:"0 1px 4px rgba(27,46,75,0.06)"}}>
+            <div style={{color:EQ.grisMedio,fontSize:11,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:18}}>Distribución de Indicadores por Área</div>
+            <div style={{height:220}}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData} barSize={15} barCategoryGap="30%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={EQ.azulBorde} vertical={false}/>
+                  <XAxis dataKey="area" tick={{fill:EQ.grisMedio,fontSize:12}} axisLine={false} tickLine={false}/>
+                  <YAxis tick={{fill:EQ.grisMedio,fontSize:11}} axisLine={false} tickLine={false}/>
+                  <Tooltip contentStyle={{background:"#FFF",border:`1px solid ${EQ.azulBorde}`,borderRadius:8,color:EQ.azulOscuro}} cursor={{fill:EQ.turquesaGlow}}/>
+                  <Bar dataKey="En Meta" fill={EQ.verde}    radius={[4,4,0,0]}/>
+                  <Bar dataKey="Alerta"  fill={EQ.amarillo} radius={[4,4,0,0]}/>
+                  <Bar dataKey="Crítico" fill={EQ.rojo}     radius={[4,4,0,0]}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── VISTA POR ÁREA ────────────────────────────────────────────────────────
+    function AreaView({area, kpis}) {
+      const v=kpis.filter(k=>k.semaforo==="verde").length;
+      const a=kpis.filter(k=>k.semaforo==="amarillo").length;
+      const r=kpis.filter(k=>k.semaforo==="rojo").length;
+      return (
+        <div style={{display:"flex",flexDirection:"column",gap:22}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,borderBottom:`1px solid ${EQ.azulBorde}`,paddingBottom:18}}>
+            <div style={{width:48,height:48,background:EQ.turquesaGlow,border:`2px solid ${EQ.turquesa}`,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>
+              {areaIcons[area]}
+            </div>
+            <div>
+              <div style={{fontSize:22,fontWeight:800,color:EQ.azulOscuro}}>{area}</div>
+              <div style={{color:EQ.grisMedio,fontSize:12}}>{kpis.length} indicadores · datos en tiempo real</div>
+            </div>
+            <div style={{marginLeft:"auto",display:"flex",gap:20}}>
+              {[{l:"OK",val:v,c:EQ.verde},{l:"Alerta",val:a,c:EQ.amarillo},{l:"Crítico",val:r,c:EQ.rojo}].map(m=>(
+                <div key={m.l} style={{textAlign:"center"}}>
+                  <div style={{fontSize:26,fontWeight:900,color:m.c,fontFamily:"monospace"}}>{m.val}</div>
+                  <div style={{fontSize:10,color:EQ.grisMedio,textTransform:"uppercase"}}>{m.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:14}}>
+            {kpis.map(k=><KPICard key={k.id} kpi={k}/>)}
+          </div>
+        </div>
+      );
+    }
+
+    // ── APP PRINCIPAL ─────────────────────────────────────────────────────────
+    function App() {
+      const [activeArea,  setActiveArea]  = useState("Gerencial");
+      const [token,       setToken]       = useState(null);
+      const [usuario,     setUsuario]     = useState("");
+      const [kpiData,     setKpiData]     = useState(DEMO_DATA);
+      const [loadingAuth, setLoadingAuth] = useState(false);
+      const [loadingData, setLoadingData] = useState(false);
+      const [error,       setError]       = useState(null);
+      const [ultimaSync,  setUltimaSync]  = useState(null);
+      const [esDemo,      setEsDemo]      = useState(true);
+
+      const cargarDatosOneDrive = useCallback(async (accessToken) => {
+        setLoadingData(true); setError(null);
+        try {
+          const nuevos = {};
+          for (const [area, archivos] of Object.entries(KPI_FILES)) {
+            nuevos[area] = await Promise.all(archivos.map(f => readExcelKPI(accessToken, area, f)));
+          }
+          setKpiData(nuevos); setEsDemo(false);
+          setUltimaSync(new Date().toLocaleTimeString("es-EC",{hour:"2-digit",minute:"2-digit"}));
+        } catch(err) {
+          setError(`Error al leer OneDrive: ${err.message}`);
+        } finally {
+          setLoadingData(false);
+        }
+      }, []);
+
+      const handleLogin = async () => {
+        setLoadingAuth(true); setError(null);
+        try {
+          const accessToken = await msalLogin();
+          const meRes = await fetch(`${GRAPH_BASE}/me`, { headers:{Authorization:`Bearer ${accessToken}`} });
+          const me    = await meRes.json();
+          setToken(accessToken);
+          setUsuario(me.displayName || me.userPrincipalName || "Usuario");
+          await cargarDatosOneDrive(accessToken);
+        } catch(err) {
+          setError(`Error de autenticación: ${err.message}`);
+        } finally {
+          setLoadingAuth(false);
+        }
+      };
+
+      const handleLogout  = () => { setToken(null); setUsuario(""); setKpiData(DEMO_DATA); setEsDemo(true); setUltimaSync(null); };
+      const handleRefresh = () => { if(token) cargarDatosOneDrive(token); };
+
+      return (
+        <div style={{minHeight:"100vh",background:EQ.fondoPagina,fontFamily:"'Nunito Sans',sans-serif",color:EQ.azulOscuro}}>
+
+          {/* ── HEADER ── */}
+          <div style={{background:"#FFF",borderBottom:`1px solid ${EQ.azulBorde}`,padding:"0 32px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(27,46,75,0.08)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",height:64}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                  <circle cx="20" cy="20" r="18" stroke={EQ.turquesa} strokeWidth="2.5" fill="none"/>
+                  <path d="M11 16 Q20 10 29 16" stroke={EQ.turquesa} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+                  <line x1="11" y1="20" x2="29" y2="20" stroke={EQ.turquesa} strokeWidth="2.2" strokeLinecap="round"/>
+                  <path d="M11 24 Q20 30 29 24" stroke={EQ.turquesa} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+                </svg>
+                <div>
+                  <div style={{fontSize:19,fontWeight:800,color:EQ.azulOscuro,letterSpacing:"0.01em"}}>
+                    EQ<span style={{color:EQ.turquesa}}>Solutions</span>
+                  </div>
+                  <div style={{fontSize:9.5,color:EQ.grisMedio,textTransform:"uppercase",letterSpacing:"0.15em"}}>Dashboard Ejecutivo de Indicadores</div>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                {ultimaSync && !esDemo && (
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:10,color:EQ.grisMedio}}>Última sincronización</div>
+                    <div style={{fontSize:12,fontWeight:700,color:EQ.turquesa}}>{ultimaSync}</div>
+                  </div>
+                )}
+                {token && (
+                  <button onClick={handleRefresh} disabled={loadingData} title="Actualizar datos" style={{
+                    background:"none",border:`1px solid ${EQ.azulBorde}`,borderRadius:8,
+                    padding:"6px 10px",cursor:"pointer",color:EQ.grisMedio,fontSize:18,
+                  }}>
+                    <span style={{display:"inline-block",animation:loadingData?"spin 1s linear infinite":"none"}}>↻</span>
+                  </button>
+                )}
+                {/* Badge conexión */}
+                {loadingAuth ? (
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:EQ.grisMedio}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:EQ.amarillo,animation:"pulse 1s infinite"}}/>
+                    Conectando...
+                  </div>
+                ) : token ? (
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:EQ.verde}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:EQ.verde,boxShadow:`0 0 6px ${EQ.verde}`}}/>
+                      OneDrive conectado
+                    </div>
+                    <span style={{fontSize:12,color:EQ.grisMedio}}>{usuario}</span>
+                    <button onClick={handleLogout} style={{fontSize:11,color:EQ.grisMedio,background:"none",border:`1px solid ${EQ.azulBorde}`,borderRadius:6,padding:"3px 8px",cursor:"pointer"}}>Salir</button>
+                  </div>
+                ) : (
+                  <button onClick={handleLogin} style={{
+                    display:"flex",alignItems:"center",gap:8,
+                    background:EQ.turquesa,color:"#fff",border:"none",
+                    borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:700,
+                    cursor:"pointer",fontFamily:"'Nunito Sans',sans-serif",
+                    boxShadow:`0 2px 8px ${EQ.turquesaGlow}`,
+                  }}>
+                    ☁️ Conectar OneDrive
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* NAV */}
+            <div style={{display:"flex",gap:2}}>
+              {AREAS.map(area=>(
+                <button key={area} onClick={()=>setActiveArea(area)} style={{
+                  padding:"10px 20px",background:"transparent",border:"none",
+                  borderBottom:activeArea===area?`2px solid ${EQ.turquesa}`:"2px solid transparent",
+                  color:activeArea===area?EQ.turquesa:EQ.grisMedio,
+                  fontFamily:"'Nunito Sans',sans-serif",fontSize:13,
+                  fontWeight:activeArea===area?800:500,
+                  cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"color 0.2s",
+                }}>
+                  {area!=="Gerencial" && <span>{areaIcons[area]}</span>}
+                  {area}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── BANNERS ── */}
+          {esDemo && !error && (
+            <div style={{background:"#FFF8E1",borderBottom:"1px solid #F5C842",padding:"10px 32px",display:"flex",alignItems:"center",gap:10,fontSize:12,color:"#7A5C00"}}>
+              <span>⚡</span><span><strong>Modo demo</strong> — Datos de ejemplo. Conecta OneDrive para ver tus indicadores reales.</span>
+            </div>
+          )}
+          {loadingData && (
+            <div style={{background:"#E6F7F8",borderBottom:`1px solid ${EQ.turquesa}`,padding:"10px 32px",display:"flex",alignItems:"center",gap:10,fontSize:12,color:EQ.turquesa}}>
+              <span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>↻</span>
+              <span>Cargando indicadores desde OneDrive...</span>
+            </div>
+          )}
+          {error && (
+            <div style={{background:"#FFF0F3",borderBottom:`1px solid ${EQ.rojo}`,padding:"10px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,color:EQ.rojo}}>
+              <span>⚠️ {error}</span>
+              <button onClick={()=>setError(null)} style={{background:"none",border:"none",color:EQ.rojo,cursor:"pointer",fontSize:14}}>✕</button>
+            </div>
+          )}
+
+          {/* ── CONTENIDO ── */}
+          <div style={{padding:"28px 32px"}}>
+            {activeArea==="Gerencial"
+              ? <GerencialView kpiData={kpiData} setArea={setActiveArea}/>
+              : <AreaView area={activeArea} kpis={kpiData[activeArea]}/>
+            }
+          </div>
+
+          {/* ── FOOTER ── */}
+          <div style={{borderTop:`1px solid ${EQ.azulBorde}`,padding:"14px 32px",display:"flex",justifyContent:"space-between",background:"#FFF",marginTop:12}}>
+            <span style={{fontSize:11,color:EQ.grisMedio}}>© 2025 EQSolutions — Información confidencial de uso interno</span>
+            <span style={{fontSize:11,color:EQ.turquesa,fontWeight:700}}>
+              {esDemo?"20 KPIs · 5 Áreas · Modo Demo":"20 KPIs · 5 Áreas · OneDrive"}
+            </span>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
