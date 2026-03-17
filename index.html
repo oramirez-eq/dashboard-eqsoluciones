@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Ejecutivo — EQSolutions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600;700;800&family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+    /* ── PALETA OFICIAL MANUAL DE MARCA EQSolutions ── */
+    :root {
+      --azul:      #1A3756;   /* Primario: HEX #1A3756 */
+      --tq:        #0684C6;   /* Primario: HEX #0684C6 turquesa */
+      --tqLight:   #BADEE7;   /* Secundario: azul claro */
+      --verdeEQ:   #6ECE8E;   /* Secundario: verde */
+      --azulOsc:   #05142D;   /* Secundario: azul marino */
+      --fondo:     #F4F6F9;
+      --blanco:    #FFFFFF;
+      --borde:     #E0E8F0;
+      --grisMed:   #6B87A8;
+      --grisLight: #EEF3F8;
+      /* Semáforo */
+      --verde:     #16A97A;
+      --amarillo:  #D4A012;
+      --rojo:      #E03355;
+      --tqGlow:    rgba(6,132,198,0.12);
+    }
+
+    body { background:var(--fondo); font-family:'Open Sans',sans-serif; color:var(--azul); }
+
+    @keyframes spin   { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+    /* ── HEADER — estilo informe EQSolutions ── */
+    #header {
+      background: var(--blanco);
+      border-top: 4px solid var(--tq);        /* línea turquesa superior como en el PDF */
+      border-bottom: 1px solid var(--borde);
+      padding: 0 36px;
+      position: sticky; top:0; z-index:100;
+      box-shadow: 0 2px 12px rgba(26,55,86,0.08);
+    }
+    #header-top { display:flex; justify-content:space-between; align-items:center; height:68px; }
+
+    /* ── LOGO EQSolutions — isotipo real ── */
+    .logo-wrap { display:flex; align-items:center; gap:14px; }
+    .logo-texts {}
+    .logo-name {
+      font-family: 'Raleway', sans-serif;
+      font-size: 19px; line-height:1.1;
+      color: var(--azul);
+    }
+    .logo-name .eq  { font-weight: 300; letter-spacing:.02em; }
+    .logo-name .sol { font-weight: 800; }
+    .logo-sub {
+      font-size: 8px; color: var(--grisMed);
+      text-transform: uppercase; letter-spacing: .22em;
+      font-family: 'Open Sans', sans-serif;
+      margin-top:2px;
+    }
+    .header-sep { width:1px; height:36px; background:var(--borde); margin:0 8px; }
+
+    /* ── NAV ── */
+    #nav { display:flex; }
+    .nav-btn {
+      padding:12px 18px; background:transparent; border:none;
+      border-bottom:3px solid transparent;
+      color:var(--grisMed);
+      font-family:'Open Sans',sans-serif; font-size:12px; font-weight:600;
+      letter-spacing:.04em; text-transform:uppercase;
+      cursor:pointer; transition:all .2s;
+      display:flex; align-items:center; gap:6px;
+    }
+    .nav-btn:hover  { color:var(--azul); }
+    .nav-btn.active { color:var(--tq); border-bottom-color:var(--tq); font-weight:700; }
+
+    /* ── BANNERS ── */
+    .banner { padding:9px 36px; display:flex; align-items:center; gap:10px; font-size:12px; font-family:'Open Sans',sans-serif; }
+    .banner-demo  { background:#FFFBEA; border-bottom:1px solid #F0D060; color:#7A5C00; }
+    .banner-sync  { background:#EBF6FB; border-bottom:1px solid var(--tq); color:var(--azul); }
+    .banner-error { background:#FFF0F3; border-bottom:1px solid var(--rojo); color:var(--rojo); justify-content:space-between; }
+    .banner-error button { background:none; border:none; color:var(--rojo); cursor:pointer; font-size:15px; }
+
+    /* ── CONTENT ── */
+    #content { padding:26px 36px; animation:fadeIn .3s ease; }
+
+    /* ── CARD BASE ── */
+    .card {
+      background:var(--blanco);
+      border:1px solid var(--borde);
+      border-radius:6px;
+      padding:22px 26px;
+      box-shadow:0 1px 4px rgba(26,55,86,0.05);
+    }
+
+    /* ── METRICS GRID ── */
+    .metrics-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:18px; }
+    .metric-card {
+      background:var(--blanco); border:1px solid var(--borde);
+      border-radius:6px; padding:20px 24px;
+      border-left:4px solid var(--tq);
+      box-shadow:0 1px 4px rgba(26,55,86,0.05);
+    }
+    .metric-label {
+      font-size:10px; text-transform:uppercase;
+      letter-spacing:.14em; color:var(--grisMed);
+      margin-bottom:8px; font-family:'Open Sans',sans-serif;
+    }
+    .metric-value { font-size:46px; font-weight:800; font-family:'Raleway',sans-serif; line-height:1; }
+
+    /* ── SALUD ── */
+    .salud-bar { display:flex; height:10px; border-radius:5px; overflow:hidden; gap:2px; }
+    .salud-legend { display:flex; gap:24px; margin-top:10px; font-size:12px; }
+
+    /* ── AREAS GRID ── */
+    .areas-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+    .area-card {
+      background:var(--blanco); border:1px solid var(--borde);
+      border-top:3px solid var(--tq);
+      border-radius:6px; padding:18px 18px;
+      cursor:pointer; transition:all .2s;
+      box-shadow:0 1px 4px rgba(26,55,86,0.05);
+    }
+    .area-card:hover { border-top-color:var(--azul); box-shadow:0 4px 16px rgba(26,55,86,0.12); transform:translateY(-2px); }
+    .area-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .area-name { display:flex; align-items:center; gap:7px; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--azul); }
+    .area-pct { font-family:'Raleway',sans-serif; font-size:22px; font-weight:800; }
+    .area-bars { display:flex; gap:3px; margin-bottom:10px; }
+    .area-bar  { flex:1; height:4px; border-radius:2px; }
+    .area-stats { display:flex; gap:12px; font-size:10px; }
+
+    /* ── KPI GRID ── */
+    .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px; }
+    .kpi-card {
+      background:var(--blanco); border:1px solid var(--borde);
+      border-radius:6px; padding:20px 22px;
+      position:relative; overflow:hidden;
+      box-shadow:0 1px 4px rgba(26,55,86,0.05);
+      transition:all .25s;
+    }
+    .kpi-card:hover { border-color:var(--tq); transform:translateY(-2px); box-shadow:0 6px 20px var(--tqGlow); }
+    .kpi-stripe { position:absolute; top:0; left:0; width:100%; height:3px; }
+    .kpi-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; padding-top:6px; }
+    .kpi-desc { font-size:9px; color:var(--grisMed); text-transform:uppercase; letter-spacing:.07em; line-height:1.5; max-width:68%; }
+    .kpi-badge { font-size:8.5px; font-weight:700; padding:3px 9px; border-radius:3px; white-space:nowrap; letter-spacing:.05em; }
+    .kpi-nombre { font-size:14px; font-weight:700; color:var(--azul); margin-bottom:10px; font-family:'Raleway',sans-serif; }
+    .kpi-valor-row { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
+    .kpi-valor { font-size:30px; font-weight:800; font-family:'Raleway',sans-serif; line-height:1; }
+    .kpi-meta  { font-size:11px; color:var(--grisMed); }
+    .kpi-bar-bg   { height:4px; background:var(--grisLight); border-radius:2px; overflow:hidden; }
+    .kpi-bar-fill { height:100%; border-radius:2px; transition:width .6s ease; }
+    .kpi-pct   { font-size:10px; color:var(--grisMed); margin-top:4px; margin-bottom:8px; }
+    .kpi-chart { height:48px; }
+
+    /* ── AREA VIEW ── */
+    .area-view-header {
+      display:flex; align-items:center; gap:16px;
+      border-bottom:2px solid var(--tq);
+      padding-bottom:16px; margin-bottom:22px;
+    }
+    .area-icon-box {
+      width:50px; height:50px; border:2px solid var(--tq);
+      border-radius:6px; display:flex; align-items:center;
+      justify-content:center; font-size:24px; background:var(--tqGlow);
+    }
+    .area-view-title { font-size:20px; font-weight:800; color:var(--azul); font-family:'Raleway',sans-serif; }
+    .area-view-sub   { font-size:11px; color:var(--grisMed); }
+    .area-counters   { margin-left:auto; display:flex; gap:24px; }
+    .area-counter    { text-align:center; }
+    .area-counter-val{ font-size:28px; font-weight:800; font-family:'Raleway',sans-serif; }
+    .area-counter-lbl{ font-size:9px; color:var(--grisMed); text-transform:uppercase; letter-spacing:.1em; }
+
+    /* ── CHART ── */
+    .chart-wrap { height:220px; position:relative; }
+
+    /* ── CONNECT BTN ── */
+    .connect-btn {
+      display:flex; align-items:center; gap:8px;
+      background:var(--tq); color:#fff; border:none;
+      border-radius:4px; padding:9px 18px;
+      font-size:11px; font-weight:700; letter-spacing:.08em;
+      cursor:pointer; font-family:'Open Sans',sans-serif;
+      text-transform:uppercase;
+      box-shadow:0 2px 8px var(--tqGlow); transition:all .2s;
+    }
+    .connect-btn:hover { background:var(--azul); }
+    .sync-info .lbl { font-size:9px; color:var(--grisMed); text-transform:uppercase; letter-spacing:.08em; }
+    .sync-info .val { font-size:12px; font-weight:700; color:var(--tq); }
+    .connected-badge { display:flex; align-items:center; gap:10px; }
+    .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+    .dot-green  { background:var(--verde); box-shadow:0 0 5px var(--verde); }
+    .dot-yellow { background:var(--amarillo); animation:pulse 1s infinite; }
+    .logout-btn { font-size:11px; color:var(--grisMed); background:none; border:1px solid var(--borde); border-radius:4px; padding:3px 10px; cursor:pointer; }
+    .refresh-btn { background:none; border:1px solid var(--borde); border-radius:4px; padding:6px 10px; cursor:pointer; color:var(--grisMed); font-size:17px; }
+
+    /* ── SECTION TITLE ── */
+    .section-title {
+      font-size:10px; text-transform:uppercase; letter-spacing:.14em;
+      color:var(--grisMed); margin-bottom:14px;
+      font-family:'Open Sans',sans-serif; font-weight:600;
+    }
+    .section-title span { color:var(--tq); }
+
+    /* ── FOOTER — estilo informe EQSolutions ── */
+    #footer {
+      border-top:1px solid var(--borde);
+      padding:12px 36px;
+      display:flex; justify-content:space-between; align-items:center;
+      background:var(--blanco); margin-top:12px;
+    }
+    .footer-logo { display:flex; align-items:center; gap:8px; }
+    .footer-info { font-size:10px; color:var(--grisMed); font-family:'Open Sans',sans-serif; }
+    .footer-right { font-size:10px; color:var(--tq); font-weight:700; text-transform:uppercase; letter-spacing:.1em; }
+
+    .gap-18 { margin-bottom:18px; }
+    .hidden { display:none !important; }
+    .spinning { animation:spin 1s linear infinite; display:inline-block; }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<div id="header">
+  <div id="header-top">
+    <div class="logo-wrap">
+      <img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" alt="EQSolutions" height="52" style="display:block;"/>
+      <div class="header-sep"></div>
+      <div class="logo-sub" style="font-size:9px;color:var(--grisMed);text-transform:uppercase;letter-spacing:.2em;">Dashboard Ejecutivo de Indicadores</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div id="sync-info" class="sync-info hidden" style="text-align:right"></div>
+      <button id="refresh-btn" class="refresh-btn hidden" title="Actualizar">↻</button>
+      <div class="header-sep"></div>
+      <div id="auth-area"></div>
+    </div>
+  </div>
+  <div id="nav"></div>
+</div>
+
+<!-- ── BANNERS ── -->
+<div id="banner-demo" class="banner banner-demo">
+  <span>⚡</span>
+  <span><strong>Modo demo</strong> — Datos de ejemplo. Conecta OneDrive para ver tus indicadores reales.</span>
+</div>
+<div id="banner-sync" class="banner banner-sync hidden">
+  <span class="spinning">↻</span>
+  <span>Sincronizando indicadores desde OneDrive de EQSolutions...</span>
+</div>
+<div id="banner-error" class="banner banner-error hidden">
+  <span id="error-text"></span>
+  <button onclick="hideError()">✕</button>
+</div>
+
+<!-- ── CONTENT ── -->
+<div id="content"></div>
+
+<!-- ── FOOTER — estilo informe corporativo ── -->
+<div id="footer">
+  <div class="footer-logo">
+    <img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" alt="EQSolutions" height="28" style="display:block;"/>
+    <div class="footer-info">
+      <div style="color:var(--grisMed);">© 2025 EQSolutions — Información confidencial de uso interno</div>
+    </div>
+  </div>
+  <span class="footer-right" id="footer-right">20 KPIs · 5 Áreas · Modo Demo</span>
+</div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const MSAL = {
+  clientId:    "f364c631-d024-4931-9146-e169268edfa8",
+  tenantId:    "18417441-40a1-41fb-a1a1-13ceadd73586",
+  redirectUri: "https://oramirez-eq.github.io",
+  scopes:      "Files.Read.All Sites.Read.All User.Read"
+};
+const GRAPH       = "https://graph.microsoft.com/v1.0";
+const DRIVE_OWNER = "fscavone@eqsoluciones.com";
+const AREA_PATHS  = {
+  TICs:           "/Documents/9. TIC/V. Acompañamiento/Lukmar/Indicadores",
+  Contabilidad:   null,
+  Finanzas:       null,
+  Abastecimiento: null,
+  RRHH:           null,
+};
+const KPI_FILES = {
+  TICs:           ["LKM Atención a usuarios","LKM Confiabilidad Internet","LKM Cumplimiento Actividades"],
+  Contabilidad:   ["Cumplimiento_Cierre","Lead_Time_Impuestos","Cumplimiento_Auditorias"],
+  Finanzas:       ["Cumplimiento_Pago_Proveedores","Evolucion_Cartera","Cartera_Vencida"],
+  Abastecimiento: ["Lead_Time_Compras","Ahorros","Proveedores_Activos","OTIF","Confiabilidad_Inventarios","Obsolescencias","Inventario"],
+  RRHH:           ["Sobretiempos","Tiempos_Contratacion","Rotacion","Capacitaciones"],
+};
+const KPI_META = {
+  "LKM Atención a usuarios":      {id:1,  nombre:"Atención a Usuario",       unidad:"%", desc:"Tickets resueltos / Total tickets"},
+  "LKM Confiabilidad Internet":   {id:2,  nombre:"Confiabilidad de Internet", unidad:"%", desc:"Uptime mensual del servicio"},
+  "LKM Cumplimiento Actividades": {id:3,  nombre:"Cumplimiento Actividades",  unidad:"%", desc:"Actividades completadas / planificadas"},
+  Cumplimiento_Cierre:            {id:4,  nombre:"Cumplimiento al Cierre",    unidad:"%", desc:"Cierres contables a tiempo"},
+  Lead_Time_Impuestos:            {id:5,  nombre:"Lead Time Impuestos",       unidad:"d", desc:"Días promedio para declaración"},
+  Cumplimiento_Auditorias:        {id:6,  nombre:"Cumplimiento Auditorías",   unidad:"%", desc:"Hallazgos cerrados / total"},
+  Cumplimiento_Pago_Proveedores:  {id:7,  nombre:"Cumpl. Pago Proveedores",   unidad:"%", desc:"Pagos a tiempo / total pagos"},
+  Evolucion_Cartera:              {id:8,  nombre:"Evolución Cartera Mes",     unidad:"$", desc:"Saldo total de cartera activa"},
+  Cartera_Vencida:                {id:9,  nombre:"Cartera Vencida",           unidad:"%", desc:"Cartera vencida / total cartera"},
+  Lead_Time_Compras:              {id:10, nombre:"Lead Time Compras",         unidad:"d", desc:"Días promedio del proceso de compra"},
+  Ahorros:                        {id:11, nombre:"Ahorros",                   unidad:"$", desc:"Ahorros acumulados en negociaciones"},
+  Proveedores_Activos:            {id:12, nombre:"Proveedores Activos",       unidad:"#", desc:"Proveedores habilitados y activos"},
+  OTIF:                           {id:13, nombre:"OTIF",                      unidad:"%", desc:"On Time In Full — entregas"},
+  Confiabilidad_Inventarios:      {id:14, nombre:"Confiabilidad Inventarios", unidad:"%", desc:"Exactitud en conteo de inventario"},
+  Obsolescencias:                 {id:15, nombre:"Obsolescencias",            unidad:"%", desc:"% inventario obsoleto sobre total"},
+  Inventario:                     {id:16, nombre:"Inventario",                unidad:"$", desc:"Valor total del inventario"},
+  Sobretiempos:                   {id:17, nombre:"Sobretiempos",              unidad:"%", desc:"Horas extra / total horas trabajadas"},
+  Tiempos_Contratacion:           {id:18, nombre:"Tiempos de Contratación",   unidad:"d", desc:"Días promedio para cubrir vacante"},
+  Rotacion:                       {id:19, nombre:"Rotación",                  unidad:"%", desc:"Rotación mensual de personal"},
+  Capacitaciones:                 {id:20, nombre:"Capacitaciones",            unidad:"%", desc:"Personal capacitado / total personal"},
+};
+const INV = ["LKM Confiabilidad Internet","Lead_Time_Impuestos","Lead_Time_Compras",
+             "Tiempos_Contratacion","Sobretiempos","Rotacion",
+             "Cartera_Vencida","Obsolescencias","Inventario","Evolucion_Cartera"];
+
+const DEMO = {
+  TICs:[
+    {id:1,nombre:"Atención a Usuario",valor:87,meta:90,unidad:"%",trend:[72,78,80,85,87],semaforo:"amarillo",desc:"Tickets resueltos / Total tickets"},
+    {id:2,nombre:"Confiabilidad de Internet",valor:99.2,meta:99.5,unidad:"%",trend:[98,99,98.5,99.1,99.2],semaforo:"amarillo",desc:"Uptime mensual del servicio"},
+    {id:3,nombre:"Cumplimiento Actividades",valor:94,meta:95,unidad:"%",trend:[88,90,91,93,94],semaforo:"amarillo",desc:"Actividades completadas / planificadas"},
+  ],
+  Contabilidad:[
+    {id:4,nombre:"Cumplimiento al Cierre",valor:100,meta:100,unidad:"%",trend:[95,97,98,100,100],semaforo:"verde",desc:"Cierres contables a tiempo"},
+    {id:5,nombre:"Lead Time Impuestos",valor:4,meta:3,unidad:"d",trend:[6,5,5,4,4],semaforo:"amarillo",desc:"Días promedio para declaración"},
+    {id:6,nombre:"Cumplimiento Auditorías",valor:92,meta:95,unidad:"%",trend:[80,84,88,90,92],semaforo:"amarillo",desc:"Hallazgos cerrados / total"},
+  ],
+  Finanzas:[
+    {id:7,nombre:"Cumpl. Pago Proveedores",valor:96,meta:98,unidad:"%",trend:[90,92,93,95,96],semaforo:"amarillo",desc:"Pagos a tiempo / total pagos"},
+    {id:8,nombre:"Evolución Cartera Mes",valor:1250000,meta:1100000,unidad:"$",trend:[980000,1050000,1100000,1200000,1250000],semaforo:"rojo",desc:"Saldo total de cartera activa"},
+    {id:9,nombre:"Cartera Vencida",valor:8.2,meta:5,unidad:"%",trend:[12,10,9.5,9,8.2],semaforo:"rojo",desc:"Cartera vencida / total cartera"},
+  ],
+  Abastecimiento:[
+    {id:10,nombre:"Lead Time Compras",valor:12,meta:10,unidad:"d",trend:[18,16,14,13,12],semaforo:"amarillo",desc:"Días promedio del proceso de compra"},
+    {id:11,nombre:"Ahorros",valor:320000,meta:300000,unidad:"$",trend:[210000,240000,270000,300000,320000],semaforo:"verde",desc:"Ahorros acumulados en negociaciones"},
+    {id:12,nombre:"Proveedores Activos",valor:145,meta:150,unidad:"#",trend:[130,135,138,142,145],semaforo:"amarillo",desc:"Proveedores habilitados y activos"},
+    {id:13,nombre:"OTIF",valor:88,meta:95,unidad:"%",trend:[78,81,84,86,88],semaforo:"rojo",desc:"On Time In Full — entregas"},
+    {id:14,nombre:"Confiabilidad Inventarios",valor:97,meta:98,unidad:"%",trend:[93,94,95,96,97],semaforo:"amarillo",desc:"Exactitud en conteo de inventario"},
+    {id:15,nombre:"Obsolescencias",valor:3.1,meta:2,unidad:"%",trend:[5.2,4.8,4.1,3.5,3.1],semaforo:"rojo",desc:"% inventario obsoleto sobre total"},
+    {id:16,nombre:"Inventario",valor:4800000,meta:4500000,unidad:"$",trend:[4200000,4400000,4600000,4750000,4800000],semaforo:"rojo",desc:"Valor total del inventario"},
+  ],
+  RRHH:[
+    {id:17,nombre:"Sobretiempos",valor:6.4,meta:5,unidad:"%",trend:[9,8,7.5,7,6.4],semaforo:"rojo",desc:"Horas extra / total horas trabajadas"},
+    {id:18,nombre:"Tiempos de Contratación",valor:22,meta:20,unidad:"d",trend:[30,28,26,24,22],semaforo:"amarillo",desc:"Días promedio para cubrir vacante"},
+    {id:19,nombre:"Rotación",valor:4.2,meta:3,unidad:"%",trend:[6.5,5.8,5.2,4.8,4.2],semaforo:"rojo",desc:"Rotación mensual de personal"},
+    {id:20,nombre:"Capacitaciones",valor:91,meta:90,unidad:"%",trend:[75,80,85,88,91],semaforo:"verde",desc:"Personal capacitado / total personal"},
+  ],
+};
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let S = { area:"Gerencial", token:null, usuario:"", esDemo:true, kpiData:DEMO, ultimaSync:null, charts:{} };
+const AREAS = ["Gerencial","TICs","Contabilidad","Finanzas","Abastecimiento","RRHH"];
+const ICONS = {TICs:"⚙️",Contabilidad:"📒",Finanzas:"💰",Abastecimiento:"📦",RRHH:"👥"};
+const MESES = ["Ene","Feb","Mar","Abr","May"];
+const sc = s => s==="verde"?"#16A97A":s==="amarillo"?"#D4A012":"#E03355";
+const fv = (v,u) => {
+  if(u==="$") return "$"+(v>=1e6?(v/1e6).toFixed(1)+"M":(v/1e3).toFixed(0)+"K");
+  if(u==="#") return ""+v;
+  return v+u;
+};
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+async function msLogin() {
+  const url = `https://login.microsoftonline.com/${MSAL.tenantId}/oauth2/v2.0/authorize`
+    +`?client_id=${MSAL.clientId}&response_type=token`
+    +`&redirect_uri=${encodeURIComponent(MSAL.redirectUri)}`
+    +`&scope=${encodeURIComponent(MSAL.scopes)}`
+    +`&response_mode=fragment&nonce=${Math.random().toString(36).slice(2)}`;
+  return new Promise((res,rej)=>{
+    const pop = window.open(url,"msalLogin","width=520,height=660");
+    const t = setInterval(()=>{
+      try {
+        if(pop.closed){clearInterval(t);rej(new Error("Ventana cerrada"));return;}
+        const h=pop.location.hash;
+        if(h&&h.includes("access_token")){clearInterval(t);pop.close();res(new URLSearchParams(h.slice(1)).get("access_token"));}
+      }catch(_){}
+    },400);
+  });
+}
+
+async function handleLogin(){
+  renderAuth("loading");
+  try {
+    const tok = await msLogin();
+    const me = await fetch(`${GRAPH}/me`,{headers:{Authorization:`Bearer ${tok}`}}).then(r=>r.json());
+    S.token=tok; S.usuario=me.displayName||me.userPrincipalName||"Usuario";
+    renderAuth("connected");
+    await loadOneDrive();
+  } catch(e){ renderAuth("disconnected"); showError("Error de autenticación: "+e.message); }
+}
+
+function handleLogout(){
+  S.token=null;S.usuario="";S.esDemo=true;S.kpiData=DEMO;S.ultimaSync=null;
+  renderAuth("disconnected");
+  document.getElementById("sync-info").classList.add("hidden");
+  document.getElementById("refresh-btn").classList.add("hidden");
+  document.getElementById("banner-demo").classList.remove("hidden");
+  document.getElementById("footer-right").textContent="20 KPIs · 5 Áreas · Modo Demo";
+  render();
+}
+
+// ── ONEDRIVE ──────────────────────────────────────────────────────────────────
+async function readKPI(tok, area, fn) {
+  const base = AREA_PATHS[area];
+  if(!base) throw new Error(`Ruta de ${area} no configurada`);
+  const path = `${base}/${fn}.xlsx`;
+  const item = await fetch(`${GRAPH}/users/${encodeURIComponent(DRIVE_OWNER)}/drive/root:${encodeURIComponent(path)}`,
+    {headers:{Authorization:`Bearer ${tok}`}}).then(async r=>{
+    if(!r.ok) throw new Error(`No encontrado: ${fn}.xlsx`); return r.json();
+  });
+  const rng = await fetch(`${GRAPH}/users/${encodeURIComponent(DRIVE_OWNER)}/drive/items/${item.id}/workbook/worksheets/Hoja1/usedRange`,
+    {headers:{Authorization:`Bearer ${tok}`}}).then(async r=>{
+    if(!r.ok) throw new Error(`Error leyendo: ${fn}`); return r.json();
+  });
+  const rows  = (rng.values||[]).slice(1).filter(r=>r[0]&&r[1]!==undefined);
+  const trend = rows.map(r=>parseFloat(r[1])||0);
+  const valor = trend[trend.length-1]??0;
+  const meta  = parseFloat(rows[rows.length-1]?.[2])||0;
+  const pct   = INV.includes(fn)?(meta/valor):(valor/meta);
+  const sem   = pct>=1?"verde":pct>=0.9?"amarillo":"rojo";
+  return {...KPI_META[fn], valor, meta, trend, semaforo:sem};
+}
+
+async function loadOneDrive(){
+  document.getElementById("banner-sync").classList.remove("hidden");
+  document.getElementById("banner-demo").classList.add("hidden");
+  try {
+    const nuevo={};
+    for(const [area,files] of Object.entries(KPI_FILES)){
+      if(!AREA_PATHS[area]){nuevo[area]=DEMO[area];continue;}
+      nuevo[area]=await Promise.all(files.map(f=>readKPI(S.token,area,f)));
+    }
+    S.kpiData=nuevo; S.esDemo=false;
+    S.ultimaSync=new Date().toLocaleTimeString("es-EC",{hour:"2-digit",minute:"2-digit"});
+    const si=document.getElementById("sync-info");
+    si.classList.remove("hidden");
+    si.innerHTML=`<div class="lbl">Última sincronización</div><div class="val">${S.ultimaSync}</div>`;
+    document.getElementById("refresh-btn").classList.remove("hidden");
+    document.getElementById("footer-right").textContent="20 KPIs · 5 Áreas · OneDrive";
+  } catch(e){
+    showError("Error al leer OneDrive: "+e.message);
+    document.getElementById("banner-demo").classList.remove("hidden");
+  } finally {
+    document.getElementById("banner-sync").classList.add("hidden");
+  }
+  render();
+}
+
+// ── UI HELPERS ────────────────────────────────────────────────────────────────
+function showError(m){ document.getElementById("error-text").textContent=m; document.getElementById("banner-error").classList.remove("hidden"); }
+function hideError() { document.getElementById("banner-error").classList.add("hidden"); }
+
+function renderAuth(s){
+  const el=document.getElementById("auth-area");
+  if(s==="loading") el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--grisMed)"><div class="dot dot-yellow"></div>Conectando...</div>`;
+  else if(s==="connected") el.innerHTML=`<div class="connected-badge"><div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--verde)"><div class="dot dot-green"></div>OneDrive conectado</div><span style="font-size:12px;color:var(--grisMed)">${S.usuario}</span><button class="logout-btn" onclick="handleLogout()">Salir</button></div>`;
+  else el.innerHTML=`<button class="connect-btn" onclick="handleLogin()">☁️ Conectar OneDrive</button>`;
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function renderNav(){
+  document.getElementById("nav").innerHTML=AREAS.map(a=>
+    `<button class="nav-btn ${S.area===a?"active":""}" onclick="setArea('${a}')">${a!=="Gerencial"?ICONS[a]:""} ${a}</button>`
+  ).join("");
+}
+function setArea(a){ S.area=a; renderNav(); renderContent(); }
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render(){ renderNav(); renderContent(); }
+function renderContent(){
+  Object.values(S.charts).forEach(c=>c.destroy&&c.destroy()); S.charts={};
+  document.getElementById("content").innerHTML = S.area==="Gerencial"?renderGerencial():renderArea(S.area);
+  if(S.area==="Gerencial") initBarChart(); else initLineCharts(S.area);
+}
+
+// ── GERENCIAL ─────────────────────────────────────────────────────────────────
+function renderGerencial(){
+  const all=Object.values(S.kpiData).flat(), total=all.length;
+  const v=all.filter(k=>k.semaforo==="verde").length;
+  const a=all.filter(k=>k.semaforo==="amarillo").length;
+  const r=all.filter(k=>k.semaforo==="rojo").length;
+  const barData=Object.keys(S.kpiData).map(area=>({
+    area, m:S.kpiData[area].filter(k=>k.semaforo==="verde").length,
+    al:S.kpiData[area].filter(k=>k.semaforo==="amarillo").length,
+    cr:S.kpiData[area].filter(k=>k.semaforo==="rojo").length,
+  }));
+  return `
+  <div class="metrics-grid gap-18">
+    ${[{l:"Total KPIs",val:total,c:"var(--tq)"},{l:"En Meta",val:v,c:"var(--verde)"},{l:"En Alerta",val:a,c:"var(--amarillo)"},{l:"Críticos",val:r,c:"var(--rojo)"}].map(m=>`
+      <div class="metric-card">
+        <div class="metric-label">${m.l}</div>
+        <div class="metric-value" style="color:${m.c}">${m.val}</div>
+      </div>`).join("")}
+  </div>
+  <div class="card gap-18" style="margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <span class="section-title" style="margin:0">Salud Global del Negocio</span>
+      <span style="color:var(--tq);font-size:12px;font-weight:700">${Math.round(v/total*100)}% en meta</span>
+    </div>
+    <div class="salud-bar">
+      <div style="flex:${v};background:var(--verde)"></div>
+      <div style="flex:${a};background:var(--amarillo)"></div>
+      <div style="flex:${r};background:var(--rojo)"></div>
+    </div>
+    <div class="salud-legend">
+      <span style="color:var(--verde)">■ En Meta &nbsp;${Math.round(v/total*100)}%</span>
+      <span style="color:var(--amarillo)">■ Alerta &nbsp;${Math.round(a/total*100)}%</span>
+      <span style="color:var(--rojo)">■ Crítico &nbsp;${Math.round(r/total*100)}%</span>
+    </div>
+  </div>
+  <div style="margin-bottom:18px">
+    <div class="section-title">Resumen por Área — <span>clic para ver detalle</span></div>
+    <div class="areas-grid">
+      ${Object.keys(S.kpiData).map(area=>{
+        const kpis=S.kpiData[area];
+        const av=kpis.filter(k=>k.semaforo==="verde").length;
+        const aa=kpis.filter(k=>k.semaforo==="amarillo").length;
+        const ar=kpis.filter(k=>k.semaforo==="rojo").length;
+        const pct=Math.round(av/kpis.length*100);
+        const pc=pct>=70?"var(--verde)":pct>=40?"var(--amarillo)":"var(--rojo)";
+        return `<div class="area-card" onclick="setArea('${area}')">
+          <div class="area-header">
+            <div class="area-name">${ICONS[area]} ${area}</div>
+            <span class="area-pct" style="color:${pc}">${pct}%</span>
+          </div>
+          <div class="area-bars">${kpis.map(k=>`<div class="area-bar" style="background:${sc(k.semaforo)}"></div>`).join("")}</div>
+          <div class="area-stats">
+            <span style="color:var(--verde)">✓ ${av}</span>
+            <span style="color:var(--amarillo)">⚡ ${aa}</span>
+            <span style="color:var(--rojo)">✕ ${ar}</span>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title">Distribución de Indicadores por Área</div>
+    <div class="chart-wrap"><canvas id="bar-chart"></canvas></div>
+  </div>`;
+}
+
+function initBarChart(){
+  const kd=S.kpiData, areas=Object.keys(kd), ctx=document.getElementById("bar-chart");
+  if(!ctx) return;
+  S.charts["bar"]=new Chart(ctx,{
+    type:"bar",
+    data:{
+      labels:areas,
+      datasets:[
+        {label:"En Meta",  data:areas.map(a=>kd[a].filter(k=>k.semaforo==="verde").length),   backgroundColor:"#16A97A",borderRadius:3},
+        {label:"Alerta",   data:areas.map(a=>kd[a].filter(k=>k.semaforo==="amarillo").length), backgroundColor:"#D4A012",borderRadius:3},
+        {label:"Crítico",  data:areas.map(a=>kd[a].filter(k=>k.semaforo==="rojo").length),    backgroundColor:"#E03355",borderRadius:3},
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:"#6B87A8",font:{family:"Open Sans",size:11}}}},
+      scales:{
+        x:{ticks:{color:"#6B87A8",font:{family:"Open Sans"}},grid:{display:false}},
+        y:{ticks:{color:"#6B87A8"},grid:{color:"#E0E8F0"}}
+      }
+    }
+  });
+}
+
+// ── ÁREA ──────────────────────────────────────────────────────────────────────
+function renderArea(area){
+  const kpis=S.kpiData[area];
+  const v=kpis.filter(k=>k.semaforo==="verde").length;
+  const a=kpis.filter(k=>k.semaforo==="amarillo").length;
+  const r=kpis.filter(k=>k.semaforo==="rojo").length;
+  return `
+  <div class="area-view-header">
+    <div class="area-icon-box">${ICONS[area]}</div>
+    <div>
+      <div class="area-view-title">${area}</div>
+      <div class="area-view-sub">${kpis.length} indicadores · ${S.esDemo?"datos demo":"datos en tiempo real"}</div>
+    </div>
+    <div class="area-counters">
+      ${[{l:"OK",val:v,c:"var(--verde)"},{l:"Alerta",val:a,c:"var(--amarillo)"},{l:"Crítico",val:r,c:"var(--rojo)"}].map(m=>`
+        <div class="area-counter">
+          <div class="area-counter-val" style="color:${m.c}">${m.val}</div>
+          <div class="area-counter-lbl">${m.l}</div>
+        </div>`).join("")}
+    </div>
+  </div>
+  <div class="kpi-grid">
+    ${kpis.map(k=>{
+      const c=sc(k.semaforo);
+      const pct=Math.min(Math.round(k.valor/k.meta*100),100);
+      const lbl=k.semaforo==="verde"?"✓ EN META":k.semaforo==="amarillo"?"⚡ ALERTA":"✕ CRÍTICO";
+      return `<div class="kpi-card">
+        <div class="kpi-stripe" style="background:${c}"></div>
+        <div class="kpi-top">
+          <span class="kpi-desc">${k.desc}</span>
+          <span class="kpi-badge" style="background:${c}18;color:${c};border:1px solid ${c}40">${lbl}</span>
+        </div>
+        <div class="kpi-nombre">${k.nombre}</div>
+        <div class="kpi-valor-row">
+          <span class="kpi-valor" style="color:${c}">${fv(k.valor,k.unidad)}</span>
+          <span class="kpi-meta">meta: ${fv(k.meta,k.unidad)}</span>
+        </div>
+        <div>
+          <div class="kpi-bar-bg"><div class="kpi-bar-fill" style="width:${pct}%;background:${c}"></div></div>
+          <div class="kpi-pct">${pct}% de la meta</div>
+        </div>
+        <div class="kpi-chart"><canvas id="ch-${k.id}"></canvas></div>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function initLineCharts(area){
+  S.kpiData[area].forEach(k=>{
+    const ctx=document.getElementById(`ch-${k.id}`);
+    if(!ctx) return;
+    const c=sc(k.semaforo);
+    S.charts[k.id]=new Chart(ctx,{
+      type:"line",
+      data:{
+        labels:(k.trend||[]).map((_,i)=>MESES[i]||`M${i+1}`),
+        datasets:[{data:k.trend||[],borderColor:c,borderWidth:2,pointRadius:0,tension:.4,fill:false}]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{enabled:false}},
+        scales:{
+          x:{ticks:{color:"#6B87A8",font:{size:9,family:"Open Sans"}},grid:{display:false}},
+          y:{display:false}
+        }
+      }
+    });
+  });
+}
+
+// ── REFRESH ───────────────────────────────────────────────────────────────────
+document.getElementById("refresh-btn").addEventListener("click",()=>{ if(S.token) loadOneDrive(); });
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+renderAuth("disconnected");
+render();
+</script>
+</body>
+</html>
