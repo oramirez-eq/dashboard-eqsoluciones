@@ -2329,6 +2329,106 @@ function getKPIResumen(){
     }
   }
 
+  // ── Recalcular en tiempo real KPIs de CONTABILIDAD y RRHH ────────
+  // Estos indicadores viven en tablas granulares (cierre_contabilidad,
+  // rrhh_*), no en kpi_mensual. Sin este bloque el Gerencial mostraba
+  // "Sin datos" aunque las pestañas de área sí tienen información.
+  const _hoyG    = new Date();
+  const anioLive = filtroPeriodo.anio>0 ? filtroPeriodo.anio : _hoyG.getFullYear();
+  const mesLive  = filtroPeriodo.mes>0  ? filtroPeriodo.mes  : 0;
+  const _perFuturo = anioLive>_hoyG.getFullYear() ||
+    (anioLive===_hoyG.getFullYear() && mesLive>(_hoyG.getMonth()+1));
+
+  // CON-001 · Cumplimiento al Cierre — fuente: cierre_contabilidad
+  const con001 = inds.find(i=>i.codigo==="CON-001");
+  if(con001){
+    const cierresG = (cache.cierre_contabilidad||[])
+      .filter(c=>c.id_empresa===emp.id && c.anio===anioLive && c.dia_cierre_real!=null)
+      .filter(c=>mesLive>0 ? c.mes===mesLive : true)
+      .sort((a,b)=>b.mes-a.mes);
+    if(cierresG.length){
+      const cc = cierresG[0];
+      const semCC = cc.dia_cierre_real<=cc.dia_objetivo ? "verde"
+                  : cc.dia_cierre_real<=(cc.dia_objetivo+2) ? "amarillo" : "rojo";
+      byInd[con001.id] = {id_indicador:con001.id, id_empresa:emp.id, anio:anioLive, mes:cc.mes,
+                          valor:Math.round((cc.pct_cumplimiento||0)*1000)/10, semaforo:semCC};
+    }
+  }
+
+  // RRHH · Contratación / Rotación / Capacitación — fuentes granulares
+  if(!_perFuturo){
+    // Mes objetivo: el filtrado, o el mes calendario actual (dic si es año histórico)
+    const mesObjG = mesLive>0 ? mesLive
+      : (anioLive===_hoyG.getFullYear() ? _hoyG.getMonth()+1 : 12);
+    // Semáforo por umbrales configurables (rrhh_calif_config), igual que la pestaña RRHH:
+    // MB/Bueno+ → verde · Bueno/Regular → amarillo · Malo → rojo
+    const _cfgsG = (cache.rrhh_calif_config||[]).filter(c=>c.id_empresa===emp.id);
+    const semCfgG = (pct, indicador) => {
+      const c = _cfgsG.find(x=>x.indicador===indicador);
+      const u = c ? {bp:parseFloat(c.umbral_bp), r:parseFloat(c.umbral_r)} : {bp:81, r:46};
+      const p = pct*100;
+      return p>=u.bp ? "verde" : p>=u.r ? "amarillo" : "rojo";
+    };
+
+    // RRH-003 · Rotación (mes objetivo) — semáforo = peor grupo según rrhh_grupo
+    const rrh003 = inds.find(i=>i.codigo==="RRH-003");
+    const emplG  = (cache.rrhh_empleado||[]).filter(e=>e.id_empresa===emp.id && e.grupo);
+    const grpsG  = (cache.rrhh_grupo||[]).filter(g=>g.id_empresa===emp.id &&
+                     (g.activo===true||g.activo===1||g.activo===undefined));
+    if(rrh003 && emplG.length && grpsG.length){
+      const finG = new Date(Date.UTC(anioLive, mesObjG, 0));
+      const _pfG = s => { if(!s) return null; const d=new Date(String(s).slice(0,10)+"T00:00:00Z"); return isNaN(d)?null:d; };
+      let hcT=0, salT=0;
+      const ordSem = {verde:0, amarillo:1, rojo:2};
+      let peorSem = "verde";
+      grpsG.forEach(g=>{
+        const delG = emplG.filter(e=>e.grupo===g.codigo);
+        const hc  = delG.filter(e=>{ const i2=_pfG(e.fecha_ingreso), s2=_pfG(e.fecha_salida);
+                      return i2 && i2<=finG && (!s2 || s2>finG); }).length;
+        const sal = delG.filter(e=>{ const s2=_pfG(e.fecha_salida);
+                      return s2 && s2.getUTCFullYear()===anioLive && (s2.getUTCMonth()+1)===mesObjG; }).length;
+        if(hc===0) return;
+        hcT+=hc; salT+=sal;
+        const p = sal/hc*100;
+        const mb=parseFloat(g.umbral_mb), bp=parseFloat(g.umbral_bp), b=parseFloat(g.umbral_b), rr=parseFloat(g.umbral_r);
+        const semG = (p<mb || p<=bp) ? "verde" : (p<=b || p<=rr) ? "amarillo" : "rojo";
+        if(ordSem[semG]>ordSem[peorSem]) peorSem = semG;
+      });
+      if(hcT>0){
+        byInd[rrh003.id] = {id_indicador:rrh003.id, id_empresa:emp.id, anio:anioLive, mes:mesObjG,
+                            valor:Math.round(salT/hcT*1000)/10, semaforo:peorSem};
+      }
+    }
+
+    // RRH-004 · Capacitaciones (ponderado 65% colaboradores + 35% cursos)
+    const rrh004 = inds.find(i=>i.codigo==="RRH-004");
+    const MESES_ABR_G = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const capPlanG = (cache.rrhh_capacitacion_plan||[]).filter(r=>r.id_empresa===emp.id && r.anio===anioLive)
+      .filter(p=>mesLive>0 ? (p.meses_planificados||'').split(/[,;]\s*/).some(m=>m.trim()===MESES_ABR_G[mesLive]) : true);
+    const capEjeG = (cache.rrhh_capacitacion_ejecucion||[]).filter(r=>r.id_empresa===emp.id && r.anio===anioLive)
+      .filter(e=>mesLive>0 ? (parseInt(e.mes)||0)===mesLive : true);
+    if(rrh004 && (capPlanG.length || capEjeG.length)){
+      const _asistG = e => { const n=parseInt(e.asistentes_capacitados); return (isFinite(n)&&n>0)?n:1; };
+      const planCol = capPlanG.reduce((s,p)=>s+(parseInt(p.asistentes_proyectados)||0),0);
+      const execCol = capEjeG.reduce((s,e)=>s+_asistG(e),0);
+      const cursosU = new Set(capEjeG.map(e=>e.tema).filter(Boolean)).size;
+      const pctCap  = (planCol>0?execCol/planCol:0)*0.65 + (capPlanG.length>0?cursosU/capPlanG.length:0)*0.35;
+      byInd[rrh004.id] = {id_indicador:rrh004.id, id_empresa:emp.id, anio:anioLive, mes:(mesLive||mesObjG),
+                          valor:Math.round(pctCap*1000)/10, semaforo:semCfgG(pctCap,'capacitacion')};
+    }
+
+    // RRH-002 · Tiempos de Contratación (% procesos que cumplen)
+    const rrh002 = inds.find(i=>i.codigo==="RRH-002");
+    const contGL = (cache.rrhh_contratacion_procesos||[]).filter(r=>r.id_empresa===emp.id && r.anio===anioLive)
+      .filter(r=>mesLive>0 ? (parseInt(r.mes_contratacion)||0)===mesLive : true);
+    if(rrh002 && contGL.length){
+      const okG = contGL.filter(r=>/true|cumple/i.test(r.cumple||'') && !/no se ha/i.test(r.cumple||'')).length;
+      const pctCont = okG/contGL.length;
+      byInd[rrh002.id] = {id_indicador:rrh002.id, id_empresa:emp.id, anio:anioLive, mes:(mesLive||mesObjG),
+                          valor:Math.round(pctCont*1000)/10, semaforo:semCfgG(pctCont,'contratacion')};
+    }
+  }
+
   // Enriquecer con datos de indicador y área
   const res = {};
   Object.values(byInd).forEach(k=>{
