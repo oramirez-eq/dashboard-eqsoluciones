@@ -1174,7 +1174,7 @@ async function cargarDBMinimal(){
   window._sbCache = window._sbCache || {};
   const cache = window._sbCache;
   const [usuarios, empresas] = await Promise.all([
-    sbQuery("usuarios", {select:"id,email,nombre,rol,id_empresa,activo,password_hash,ultimo_acceso,creado_por,creado_en"}),
+    sbQuery("usuarios", {select:"id,email,nombre,rol,id_empresa,activo,ultimo_acceso,creado_por,creado_en"}),
     sbQuery("empresas", {select:"*"})
   ]);
   cache.usuarios = usuarios;
@@ -1656,10 +1656,8 @@ async function doLogin(){
   const cache = window._sbCache;
 
   // ── Login SERVER-SIDE (Edge Function auth-login) — AC-02/AUTH-01/AUTH-02 ──
-  // Transicional y sin downtime: si la función ya está desplegada, el hash se
-  // verifica en el servidor y nunca se compara en el navegador. Si todavía NO
-  // está desplegada (404/red), cae al método legado de abajo. Al aplicar el
-  // RLS de blindaje, el legado deja de funcionar y solo queda esta vía.
+  // La verificación de la contraseña ocurre SOLO en el servidor; el navegador
+  // nunca descarga ni compara el hash. Sin fallback (blindaje finalizado).
   let u = null;
   try {
     const resp = await fetch(SUPA_URL+"/functions/v1/auth-login", {
@@ -1669,32 +1667,22 @@ async function doLogin(){
     });
     if(resp.ok){
       const data = await resp.json();
-      if(data && data.ok && data.usuario){
-        u = { ...data.usuario, activo: true };
-      } else {
-        // La función respondió pero rechazó las credenciales → error definitivo
-        errEl.textContent="Correo o contrasena incorrectos.";
-        errEl.style.display="block";
-        document.getElementById("login-pwd").classList.add("error");
-        btn.disabled=false; btn.textContent="Ingresar"; return;
-      }
-    }
-    // resp no-ok distinto de 401 (ej. 404 = función no desplegada aún) → fallback
-  } catch(_e){ /* red/función ausente → fallback legado */ }
-
-  // ── Fallback LEGADO (se elimina al finalizar el blindaje) ──
-  if(!u){
-    if(!cache || !cache.usuarios){
-      errEl.textContent="Error: datos no cargados. Recarga la pagina.";
+      if(data && data.ok && data.usuario) u = { ...data.usuario, activo: true };
+    } else if(resp.status === 401){
+      errEl.textContent="Correo o contrasena incorrectos.";
+      errEl.style.display="block";
+      document.getElementById("login-pwd").classList.add("error");
+      btn.disabled=false; btn.textContent="Ingresar"; return;
+    } else {
+      // 5xx / función caída → mensaje claro (no expone nada)
+      errEl.textContent="No se pudo verificar el acceso. Intenta de nuevo en un momento.";
       errEl.style.display="block";
       btn.disabled=false; btn.textContent="Ingresar"; return;
     }
-    const hash = await sha256(pwd);
-    u = cache.usuarios.find(u=>
-      (u.email||"").toLowerCase() === email &&
-      u.password_hash === hash &&
-      (u.activo === true || u.activo === 1)
-    );
+  } catch(_e){
+    errEl.textContent="Sin conexión con el servidor de acceso. Revisa tu internet.";
+    errEl.style.display="block";
+    btn.disabled=false; btn.textContent="Ingresar"; return;
   }
 
   if(!u){
@@ -10419,7 +10407,7 @@ async function guardarNuevoUsuario(){
   const hash=await sha256(pwd);
   await supaPost("usuarios",{nombre,email,rol,id_empresa:empId,password_hash:hash,activo:true,creado_por:sesion.email});
   await supaPost("log_accesos",{email:sesion.email,accion:"user_created",detalle:"Creó "+email});
-  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,password_hash,ultimo_acceso");
+  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
   window._sbCache.log_accesos = await supaGet("log_accesos","select=*&order=creado_en.desc&limit=30");
   closeModal(); showSuccess("✓ Usuario "+nombre+" creado"); renderContent();
 }
@@ -10445,7 +10433,7 @@ async function guardarEdicion(id){
     if(!nombre){showError("El nombre es obligatorio.");return;}
     await supaPatch("usuarios","id=eq."+id,{nombre,rol,id_empresa:empId});
     await supaPost("log_accesos",{email:sesion.email,accion:"user_edited",detalle:"Editó usuario id "+id});
-    window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,password_hash,ultimo_acceso");
+    window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
     closeModal(); showSuccess("✓ Usuario actualizado"); renderContent();
   } catch(e){
     console.error('[guardarEdicion]', e);
@@ -10470,7 +10458,7 @@ async function guardarResetPwd(id,email){
   const hash=await sha256(pwd);
   await supaPatch("usuarios","id=eq."+id,{password_hash:hash});
   await supaPost("log_accesos",{email:sesion.email,accion:"pwd_reset",detalle:"Reset: "+email});
-  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,password_hash,ultimo_acceso");
+  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
   closeModal(); showSuccess("✓ Contraseña restablecida para "+email);
 }
 
@@ -10487,7 +10475,7 @@ async function confirmarToggle(id,activo,nombre){
   const nuevo=activo?0:1;
   await supaPatch("usuarios","id=eq."+id,{activo:nuevo===1});
   await supaPost("log_accesos",{email:sesion.email,accion:"user_edited",detalle:(nuevo===1?"Activó":"Desactivó")+": "+nombre});
-  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,password_hash,ultimo_acceso");
+  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
   closeModal(); showSuccess("✓ Usuario "+(nuevo?"activado":"desactivado")); renderContent();
 }
 
