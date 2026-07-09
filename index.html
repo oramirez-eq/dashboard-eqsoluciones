@@ -1264,12 +1264,16 @@ async function cargarDBResto(){
     // Aparte (tolerantes a tablas que pueden no existir todavía — DDL en migraciones)
     const rrhh_calif_config = await q("rrhh_calif_config", {select:"*", order:"id_empresa.asc,indicador.asc"}).catch(()=>[]);
     const usuario_acceso    = await q("usuario_acceso", {select:"*", order:"id_usuario.asc,id_empresa.asc,area.asc"}).catch(()=>[]);
+    // Config del indicador Cumplimiento Pago Proveedores (objetivo % + PB Cumplir).
+    // El DETALLE por documento (fin_pago_prov_corrida) NO se cachea — se consulta
+    // bajo demanda en el drill-down (crece ~2.3k filas por corrida semanal).
+    const fin_pago_prov_config = await q("fin_pago_prov_config", {select:"*"}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
-      empresa_api_config, comercial_precio_camaron_hist,
+      empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2352,6 +2356,25 @@ function getKPIResumen(){
                   : cc.dia_cierre_real<=(cc.dia_objetivo+2) ? "amarillo" : "rojo";
       byInd[con001.id] = {id_indicador:con001.id, id_empresa:emp.id, anio:anioLive, mes:cc.mes,
                           valor:Math.round((cc.pct_cumplimiento||0)*1000)/10, semaforo:semCC};
+    }
+  }
+
+  // FIN-001 · Cumplimiento Pago Proveedores — fuente: pagos_proveedores (corridas semanales)
+  const fin001 = inds.find(i=>i.codigo==="FIN-001");
+  if(fin001){
+    const ppRows = (cache.pagos_proveedores||[])
+      .filter(p=>p.id_empresa===emp.id && p.anio===anioLive)
+      .filter(p=>mesLive>0 ? p.mes===mesLive : true);
+    const cPP = ppRows.reduce((s,p)=>s+(p.cumplieron||0),0);
+    const tPP = ppRows.reduce((s,p)=>s+(p.total||0),0);
+    if(tPP>0){
+      const cfgFin = (cache.fin_pago_prov_config||[]).find(x=>x.id_empresa===emp.id);
+      const objFin = cfgFin ? parseFloat(cfgFin.objetivo_pct) : 95;
+      const pctFin = cPP/tPP*100;
+      const mesUltPP = mesLive>0 ? mesLive : ppRows.map(p=>p.mes).sort((a,b)=>b-a)[0];
+      byInd[fin001.id] = {id_indicador:fin001.id, id_empresa:emp.id, anio:anioLive, mes:mesUltPP,
+                          valor:Math.round(pctFin*10)/10,
+                          semaforo: pctFin>=objFin?"verde":pctFin>=80?"amarillo":"rojo"};
     }
   }
 
@@ -4742,8 +4765,6 @@ function renderFinanzas(){
   let paramsKPI=[emp,anioF];
   if(mesF>0){whereKPI+=" AND mes=?"; paramsKPI.push(mesF);}
   const kpiRow=queryAll("SELECT valor,meta,semaforo,mes FROM kpi_mensual WHERE "+whereKPI+" ORDER BY mes DESC LIMIT 1",paramsKPI)[0];
-  const valor=kpiRow?.valor||0, meta=kpiRow?.meta||95, sem=kpiRow?.semaforo||"rojo";
-  const c=sc(sem);
 
   let wherePP="id_empresa=(SELECT id FROM empresas WHERE codigo=?) AND anio=?";
   let paramsPP=[emp,anioF];
@@ -4752,6 +4773,21 @@ function renderFinanzas(){
   const totalTxn   =pagos.reduce((s,r)=>s+(r.total||0),0);
   const totalCumpl =pagos.reduce((s,r)=>s+(r.cumplieron||0),0);
   const totalNoCumpl=pagos.reduce((s,r)=>s+(r.no_cumplieron||0),0);
+
+  // KPI en VIVO desde las corridas cargadas; kpi_mensual queda como fallback.
+  // Objetivo y "PB Cumplir" configurables por empresa (fin_pago_prov_config).
+  const _empObjF = (window._sbCache?.empresas||[]).find(e=>e.codigo===emp);
+  const _cfgPP = (window._sbCache?.fin_pago_prov_config||[]).find(x=>x.id_empresa===_empObjF?.id);
+  const objetivoPP = _cfgPP ? parseFloat(_cfgPP.objetivo_pct) : 95;
+  const pbMensualPP = _cfgPP ? parseInt(_cfgPP.pb_mensual)||0 : 0;
+  const pbSemanalPP = _cfgPP ? parseInt(_cfgPP.pb_semanal)||0 : 0;
+  const _valorLive = totalTxn>0 ? totalCumpl/totalTxn*100 : null;
+  const valor = _valorLive!==null ? _valorLive : (kpiRow?.valor||0);
+  const meta  = objetivoPP || (kpiRow?.meta||95);
+  const sem   = _valorLive!==null
+    ? (valor>=meta?"verde":valor>=80?"amarillo":"rojo")
+    : (kpiRow?.semaforo||"rojo");
+  const c=sc(sem);
   const cartera=queryAll("SELECT estado_cartera, COUNT(*) c FROM cuentas_por_pagar WHERE id_empresa=(SELECT id FROM empresas WHERE codigo=?) GROUP BY estado_cartera ORDER BY CASE estado_cartera WHEN 'POR VENCER' THEN 1 WHEN '1-30' THEN 2 WHEN '30-60' THEN 3 WHEN '60-90' THEN 4 ELSE 5 END",[emp]);
   const topProv=queryAll("SELECT proveedor, COUNT(*) c, MAX(dias_vencidos) max_dias FROM cuentas_por_pagar WHERE id_empresa=(SELECT id FROM empresas WHERE codigo=?) AND estado_cartera!='POR VENCER' GROUP BY proveedor ORDER BY c DESC LIMIT 8",[emp]);
   const totalCuentas=cartera.reduce((s,r)=>s+(r.c||0),0);
@@ -4783,9 +4819,60 @@ function renderFinanzas(){
   });
   html += '</div></div>';
 
+  // ── Comparativo Mensual — réplica de la hoja GRAFICOS del TES-IND-001 ──
+  // Mes seleccionado + 2 anteriores (con cruce de año), sumando las corridas
+  // semanales de cada mes. "PB Cumplir" = meta de volumen configurable.
+  (function(){
+    const todasPP = (window._sbCache?.pagos_proveedores||[]).filter(p=>p.id_empresa===_empObjF?.id);
+    if(!todasPP.length) return;
+    const mesSel = mesF>0 ? mesF : (anioF===(new Date()).getFullYear() ? (new Date()).getMonth()+1 : 12);
+    const meses3 = [-2,-1,0].map(d=>{
+      let mm=mesSel+d, aa=anioF;
+      if(mm<1){ mm+=12; aa-=1; }
+      return {mes:mm, anio:aa};
+    });
+    const aggMes = ({mes,anio}) => {
+      const rr = todasPP.filter(p=>p.anio===anio && p.mes===mes);
+      const c1 = rr.reduce((s,p)=>s+(p.cumplieron||0),0);
+      const n1 = rr.reduce((s,p)=>s+(p.no_cumplieron||0),0);
+      const mC = rr.reduce((s,p)=>s+parseFloat(p.monto_cumplio||0),0);
+      const mN = rr.reduce((s,p)=>s+parseFloat(p.monto_no_cumplio||0),0);
+      return {mes, anio, cumplio:c1, noCumplio:n1, total:c1+n1, corridas:rr.length, montoC:mC, montoN:mN};
+    };
+    const datos3 = meses3.map(aggMes);
+    if(datos3.every(d=>d.total===0)) return;
+    window._finGraficosMensual = {datos3, objetivoPP, pbMensualPP}; // para el chart
+
+    html += '<div class="card" style="margin-bottom:16px">' +
+      '<div class="section-title">Comparativo Mensual — Cumplimiento de Pago '+anioF+'</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr) 1.4fr;gap:14px;align-items:stretch">';
+    datos3.forEach(d=>{
+      const pct = d.total>0 ? d.cumplio/d.total*100 : null;
+      const cM = pct===null ? "var(--grisMed)" : pct>=objetivoPP ? "var(--verde)" : pct>=80 ? "var(--amarillo)" : "var(--rojo)";
+      const esSel = d.mes===mesSel && d.anio===anioF;
+      html += '<div style="padding:14px;border:1.5px solid '+(esSel?'var(--tq)':'var(--borde)')+';border-radius:10px;background:'+(esSel?'#F0FBFC':'var(--blanco)')+'">' +
+        '<div style="font-size:11px;font-weight:800;color:var(--azul);text-transform:uppercase;letter-spacing:.05em">'+MESES_N[d.mes]+(d.anio!==anioF?' '+d.anio:'')+(esSel?' ◀':'')+'</div>' +
+        (d.total>0
+          ? '<div style="font-size:30px;font-weight:800;font-family:Raleway,sans-serif;color:'+cM+';line-height:1.2;margin:6px 0 2px">'+pct.toFixed(1)+'%</div>' +
+            '<div style="font-size:10px;color:var(--grisMed);margin-bottom:8px">objetivo '+objetivoPP.toFixed(0)+'%</div>' +
+            '<div style="font-size:11px;line-height:1.7">' +
+              '<span style="color:var(--verde);font-weight:700">✓ '+d.cumplio.toLocaleString("en-US")+'</span> · ' +
+              '<span style="color:var(--rojo);font-weight:700">✕ '+d.noCumplio.toLocaleString("en-US")+'</span> · ' +
+              '<span style="color:var(--azul);font-weight:700">Σ '+d.total.toLocaleString("en-US")+'</span>' +
+              (pbMensualPP>0?'<span style="color:var(--grisMed)"> / PB '+pbMensualPP.toLocaleString("en-US")+'</span>':'') +
+            '</div>' +
+            '<div style="font-size:10px;color:var(--grisMed);margin-top:4px" title="Montos según saldo de los documentos">$'+Math.round(d.montoC).toLocaleString("en-US")+' pagado · $'+Math.round(d.montoN).toLocaleString("en-US")+' impago</div>' +
+            '<div style="font-size:9px;color:var(--grisMed);margin-top:2px">'+d.corridas+' corrida'+(d.corridas!==1?'s':'')+'</div>'
+          : '<div style="font-size:16px;font-weight:700;color:var(--grisMed);margin:14px 0">Sin corridas</div>') +
+        '</div>';
+    });
+    html += '<div style="position:relative;min-height:170px"><canvas id="fin-graficos-mensual"></canvas></div>';
+    html += '</div></div>';
+  })();
+
   // Tabla + barras
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
-  html += '<div class="card"><div class="section-title">Total de Transacciones por Período</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>';
+  html += '<div class="card"><div class="section-title">Total de Transacciones por Período'+(pbSemanalPP>0?' · PB semanal '+pbSemanalPP:'')+'</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>';
   ["Período","Cumplió","No Cumplió","Total","% Cumpl.","Objetivo"].forEach(h=>{
     html += '<th style="background:var(--azul);color:#fff;padding:7px 8px;text-align:center;font-size:10px;white-space:nowrap">'+h+'</th>';
   });
@@ -4799,14 +4886,14 @@ function renderFinanzas(){
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--rojo);font-weight:600">'+(r.no_cumplieron||0).toLocaleString()+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700">'+(r.total||0).toLocaleString()+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:800;color:'+cp+'">'+(r.pct_cumplimiento||0).toFixed(1)+'%</td>' +
-        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--grisMed)">95%</td></tr>';
+        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--grisMed)">'+objetivoPP.toFixed(0)+'%</td></tr>';
     });
     html += '<tr style="background:var(--azul)"><td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">TOTAL</td>' +
       '<td style="padding:7px 8px;color:#6ECE8E;font-weight:800;text-align:center">'+totalCumpl.toLocaleString()+'</td>' +
       '<td style="padding:7px 8px;color:#ff9999;font-weight:800;text-align:center">'+totalNoCumpl.toLocaleString()+'</td>' +
       '<td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">'+totalTxn.toLocaleString()+'</td>' +
       '<td style="padding:7px 8px;color:'+c+';font-weight:800;text-align:center">'+valor.toFixed(1)+'%</td>' +
-      '<td style="padding:7px 8px;color:#aad4ff;text-align:center">95%</td></tr>';
+      '<td style="padding:7px 8px;color:#aad4ff;text-align:center">'+objetivoPP.toFixed(0)+'%</td></tr>';
   } else {
     html += '<tr><td colspan="6" style="text-align:center;color:var(--grisMed);padding:20px">Sin datos en el período</td></tr>';
   }
@@ -4850,10 +4937,10 @@ function renderFinanzas(){
   html += '</tbody></table></div></div>';
 
   html += '<div class="card" style="background:var(--grisLight);border:1px dashed var(--tq)">' +
-    '<div style="display:flex;align-items:center;gap:14px"><span style="font-size:24px">🔗</span>' +
-    '<div><div style="font-weight:700;color:var(--azul);font-size:13px">Conexión directa con ERP ACOSUX</div>' +
-    '<div style="font-size:11px;color:var(--grisMed);margin-top:2px">Este indicador se alimenta desde el módulo de Cuentas por Pagar de ACOSUX. La integración vía API (en desarrollo al 75%) permitirá actualización automática en tiempo real.</div></div>' +
-    '<div style="margin-left:auto;text-align:center;flex-shrink:0"><div style="font-size:22px;font-weight:800;color:var(--tq)">75%</div><div style="font-size:10px;color:var(--grisMed)">API en desarrollo</div></div>' +
+    '<div style="display:flex;align-items:center;gap:14px"><span style="font-size:24px">💸</span>' +
+    '<div><div style="font-weight:700;color:var(--azul);font-size:13px">Fuente: corrida de pagos semanal (reporte Aprobar Pagos · ACOSUX)</div>' +
+    '<div style="font-size:11px;color:var(--grisMed);margin-top:2px">Cada viernes se carga el reporte exportado al momento de la corrida en <b>+ Ingresar Datos → Corrida de Pagos</b>. Cumplió = documentos aprobados (a tiempo o atrasados) · No Cumplió = vencidos sin aprobar · los no vencidos sin aprobar se excluyen del total.</div></div>' +
+    '<button onclick="irAIngreso(\'corrida\')" style="margin-left:auto;flex-shrink:0;padding:8px 14px;font-size:11px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📥 Cargar corrida</button>' +
     '</div></div>';
   return html;
 }
@@ -4877,6 +4964,38 @@ function initChartsFinanzas(){
     const cartera=queryAll("SELECT estado_cartera, COUNT(*) c FROM cuentas_por_pagar WHERE id_empresa=(SELECT id FROM empresas WHERE codigo=?) GROUP BY estado_cartera ORDER BY CASE estado_cartera WHEN 'POR VENCER' THEN 1 WHEN '1-30' THEN 2 WHEN '30-60' THEN 3 WHEN '60-90' THEN 4 ELSE 5 END",[emp]);
     const cMap={"POR VENCER":"#16A97A","1-30":"#D4A012","30-60":"#F07000","60-90":"#E03355",">90":"#8B0000"};
     charts["donut-cartera"]=new Chart(ctxDonut,{type:"doughnut",data:{labels:cartera.map(r=>r.estado_cartera),datasets:[{data:cartera.map(r=>r.c),backgroundColor:cartera.map(r=>cMap[r.estado_cartera]||"#aaa"),borderWidth:2,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"60%",plugins:{legend:{display:false}}}});
+  }
+
+  // ── Chart Comparativo Mensual (réplica GRAFICOS) — barras apiladas + línea PB ──
+  const ctxMen = document.getElementById("fin-graficos-mensual");
+  const gm = window._finGraficosMensual;
+  if(ctxMen && gm){
+    const {datos3, objetivoPP, pbMensualPP} = gm;
+    const dsets = [
+      {type:"bar", label:"No Cumplió", data:datos3.map(d=>d.noCumplio), backgroundColor:"#E87A2A", stack:"s", borderRadius:3},
+      {type:"bar", label:"Cumplió",    data:datos3.map(d=>d.cumplio),   backgroundColor:"#1A6FCF", stack:"s", borderRadius:3},
+    ];
+    if(pbMensualPP>0){
+      dsets.push({type:"line", label:"PB Cumplir", data:datos3.map(()=>pbMensualPP),
+        borderColor:"#16A97A", borderWidth:2, borderDash:[6,4], pointRadius:0, fill:false});
+    }
+    charts["fin-graficos-mensual"]=new Chart(ctxMen,{
+      data:{labels:datos3.map(d=>MESES_N[d.mes].slice(0,3)), datasets:dsets},
+      options:{responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{position:"top", labels:{color:"#6B87A8", font:{family:"Open Sans", size:10}, boxWidth:10}},
+          tooltip:{callbacks:{afterTitle:items=>{
+            const d = datos3[items[0].dataIndex];
+            const pct = d.total>0 ? (d.cumplio/d.total*100).toFixed(1)+"%" : "—";
+            return "Cumplimiento: "+pct+" (obj. "+objetivoPP.toFixed(0)+"%)\n$"+Math.round(d.montoC).toLocaleString("en-US")+" pagado · $"+Math.round(d.montoN).toLocaleString("en-US")+" impago";
+          }}}
+        },
+        scales:{
+          x:{ticks:{color:"#6B87A8", font:{size:11}}, grid:{display:false}},
+          y:{ticks:{color:"#6B87A8"}, grid:{color:"#E0E8F0"}, beginAtZero:true}
+        }
+      }
+    });
   }
 }
 
@@ -4903,6 +5022,7 @@ function renderIngresoDatos(){
     {id:"balance",     icon:"💧", label:"Balance Periódico",    cat:"FIN",  gate:"Contabilidad"},
     {id:"eerr",        icon:"📥", label:"Estado de Resultados", cat:"FIN",  gate:"Contabilidad"},
     {id:"presupuesto", icon:"📊", label:"Presupuesto Anual",    cat:"FIN",  gate:"Finanzas"},
+    {id:"corrida",     icon:"💸", label:"Corrida de Pagos",     cat:"FIN",  gate:"Finanzas"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -5174,6 +5294,68 @@ function renderIngresoDatos(){
           '<td style="padding:8px;color:'+sem.color+';font-size:11px;font-weight:600">'+sem.icon+' '+sem.label+'</td>' +
           '<td style="padding:8px;text-align:right">' +
             '<button onclick="balanceEliminar('+b.id+')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button>' +
+          '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+
+  } else if(ingresoTab==="corrida"){
+    // ── Tab Corrida de Pagos — sube el reporte "Aprobar Pagos" de Acosux ──
+    // IMPORTANTE: el Excel debe exportarse AL MOMENTO de la corrida, con la
+    // aprobación real marcada (Valor aprobado refleja lo que se paga hoy).
+    const histCP = (window._sbCache?.pagos_proveedores||[])
+      .filter(p => p.fecha_corte) // solo corridas nuevas (las legacy no tienen fecha_corte)
+      .sort((a,b)=>(b.fecha_corte||"").localeCompare(a.fecha_corte||""))
+      .slice(0,10);
+    const empMapC = {};
+    (window._sbCache?.empresas||[]).forEach(e=>{ empMapC[e.id]=e.nombre; });
+    html += '<div class="ingreso-form">' +
+      '<div class="ingreso-form-title">💸 Corrida de Pagos — Cumplimiento Pago Proveedores</div>' +
+      '<div class="ingreso-form-sub">Sube el reporte <b>Aprobar Pagos</b> de Acosux exportado al momento de la corrida ' +
+      '(con la aprobación real marcada). El sistema clasifica cada documento — Cumplido, Atrasado, Impago o Vigente — ' +
+      'y alimenta el indicador TES-IND-001 semanal y mensual.</div>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label class="form-label">Empresa</label><select id="ic-empresa" class="form-select">'+empOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Fecha de la corrida (corte)</label>' +
+      '<input type="date" id="ic-fecha" class="form-input" value="'+hoy+'"/></div>' +
+      '<div class="form-group form-full"><label class="form-label">Archivo Excel (reporte Aprobar Pagos)</label>' +
+      '<input type="file" id="ic-archivo" accept=".xls,.xlsx" class="form-input" onchange="corridaLeerExcel()" style="padding:8px"/></div>' +
+      '</div>' +
+      '<div id="ic-preview" style="display:none;margin-top:14px;padding:14px;background:#F8FAFC;border:1px solid var(--borde);border-radius:8px"></div>' +
+      '<div style="display:flex;gap:12px;align-items:center;margin-top:12px">' +
+      '<button class="submit-btn" id="ic-btn-guardar" onclick="corridaGuardar()" disabled style="opacity:0.5">💾 Guardar Corrida</button>' +
+      '<span style="font-size:11px;color:var(--grisMed)">Sube el archivo para habilitar el guardado · re-subir la misma fecha reemplaza la corrida</span></div>' +
+      '</div>';
+    // Histórico de corridas
+    html += '<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimas corridas registradas</div>';
+    if(histCP.length===0){
+      html += '<div style="font-size:12px;color:var(--grisMed)">Sin corridas aún · sube la primera</div>';
+    } else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">' +
+        '<thead><tr style="background:#F8FAFC;text-align:left">' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">EMPRESA</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">CORTE</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">SEMANA</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">CUMPLIÓ</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">NO CUMPLIÓ</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">% CUMPL.</th>' +
+        '<th style="padding:8px"></th>' +
+        '</tr></thead><tbody>';
+      histCP.forEach(p => {
+        const pc = parseFloat(p.pct_cumplimiento||0);
+        const cSem = pc>=95?"var(--verde)":pc>=80?"var(--amarillo)":"var(--rojo)";
+        html += '<tr style="border-bottom:1px solid var(--borde)">' +
+          '<td style="padding:8px">'+esc(empMapC[p.id_empresa]||"—")+'</td>' +
+          '<td style="padding:8px">'+esc(p.fecha_corte||"—")+'</td>' +
+          '<td style="padding:8px">'+esc(p.periodo_label||("Sem."+p.semana))+'</td>' +
+          '<td style="padding:8px;text-align:right;color:var(--verde);font-weight:600">'+(p.cumplieron||0).toLocaleString("en-US")+'</td>' +
+          '<td style="padding:8px;text-align:right;color:var(--rojo);font-weight:600">'+(p.no_cumplieron||0).toLocaleString("en-US")+'</td>' +
+          '<td style="padding:8px;text-align:center;font-weight:700;color:'+cSem+'">'+pc.toFixed(1)+'%</td>' +
+          '<td style="padding:8px;text-align:right;white-space:nowrap">' +
+            '<button onclick="corridaVerDocs('+p.id_empresa+',\''+esc(p.fecha_corte||"")+'\')" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:6px">📄 Documentos</button>' +
+            '<button onclick="corridaEliminar('+p.id+',\''+esc(p.fecha_corte||"")+'\','+p.id_empresa+')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button>' +
           '</td>' +
           '</tr>';
       });
@@ -6102,6 +6284,393 @@ async function balanceEliminar(id){
   } catch(e){ showError("Error: "+e.message); }
 }
 window.balanceEliminar = balanceEliminar;
+
+// ═══════════════════════════════════════════════════════════════
+// CORRIDA DE PAGOS — Parser del reporte "Aprobar Pagos" (Acosux)
+// Alimenta TES/FIN-001 Cumplimiento Pago Proveedores.
+// Estados por documento (misma lógica del Excel TES-IND-001):
+//   aprobado y NO vencido → Cumplido   · aprobado y vencido → Atrasado
+//   vencido sin aprobar   → Impago     · no vencido sin aprobar → Vigente
+// Cumplió = Cumplido+Atrasado · Total del indicador EXCLUYE Vigentes.
+// ═══════════════════════════════════════════════════════════════
+let _corridaPreview = null;
+
+function _isoWeek(d){
+  // Semana ISO-8601 (lunes como primer día)
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1));
+  return Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+}
+
+async function corridaLeerExcel(){
+  const fileEl = document.getElementById("ic-archivo");
+  const previewEl = document.getElementById("ic-preview");
+  const btnGuardar = document.getElementById("ic-btn-guardar");
+  const fechaCorte = document.getElementById("ic-fecha")?.value;
+  if(!fileEl?.files?.length) return;
+  const file = fileEl.files[0];
+  previewEl.style.display="block";
+  previewEl.innerHTML = '<div style="color:var(--grisMed);font-size:12px">⏳ Leyendo reporte...</div>';
+  _corridaPreview = null;
+  if(btnGuardar){ btnGuardar.disabled=true; btnGuardar.style.opacity="0.5"; }
+  try {
+    if(!fechaCorte) throw new Error("Selecciona primero la fecha de la corrida");
+    if(!window.XLSX){
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.onload=res; s.onerror=()=>rej(new Error("No se pudo cargar SheetJS"));
+        document.head.appendChild(s);
+      });
+    }
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, {type:"array"});
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    const rows= XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+    if(!rows.length) throw new Error("El archivo está vacío");
+
+    // Mapear columnas por nombre de encabezado (robusto a reordenamientos de Acosux)
+    const hdr = rows[0].map(h => String(h||"").trim().toLowerCase());
+    const col = name => hdr.findIndex(h => h === name);
+    const COLS = {
+      proveedorRuc:  col("proveedor código"),
+      razonSocial:   col("razón social"),
+      documento:     col("documento"),
+      motivo:        col("motivo"),
+      zona:          col("zona"),
+      fEmision:      col("fecha emisión"),
+      fVcto:         col("fecha vencimiento"),
+      diasVenc:      col("días vencidos"),
+      saldo:         col("saldo"),
+      saldoVencido:  col("saldo vencido"),
+      valorAprobado: col("valor aprobado"),
+    };
+    const faltantes = Object.entries(COLS).filter(([k,v])=>v===-1).map(([k])=>k);
+    if(faltantes.length) throw new Error("Columnas no encontradas en el Excel: "+faltantes.join(", ")+". ¿Es el reporte 'Aprobar Pagos' de Acosux?");
+
+    const fc = new Date(fechaCorte+"T00:00:00");
+    const anio = fc.getFullYear(), mes = fc.getMonth()+1, semana = _isoWeek(fc);
+    const nf = v => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
+    const fecha = v => {
+      if(!v) return null;
+      const s = String(v).slice(0,10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+    };
+
+    const detalle = [];
+    let omitidas = 0;
+    for(let i=1;i<rows.length;i++){
+      const r = rows[i]; if(!r) continue;
+      const doc = r[COLS.documento];
+      if(!doc || !String(doc).trim()){ omitidas++; continue; } // filas de grupo/total del ag-grid
+      const dv   = nf(r[COLS.diasVenc]);
+      const aprob= nf(r[COLS.valorAprobado]) > 0;
+      const venc = dv > 0;
+      const estado = aprob ? (venc ? "Atrasado" : "Cumplido") : (venc ? "Impago" : "Vigente");
+      detalle.push({
+        fecha_corte: fechaCorte, anio, mes, semana,
+        proveedor_ruc:    String(r[COLS.proveedorRuc]||"").trim() || null,
+        proveedor_nombre: String(r[COLS.razonSocial]||"").trim() || null,
+        documento:        String(doc).trim(),
+        motivo:           String(r[COLS.motivo]||"").trim() || null,
+        zona:             String(r[COLS.zona]||"").trim() || null,
+        fecha_emision:    fecha(r[COLS.fEmision]),
+        fecha_vencimiento:fecha(r[COLS.fVcto]),
+        dias_vencidos:    Math.round(dv),
+        dias_desviacion:  (aprob && venc) ? Math.round(dv) : null,
+        saldo:            nf(r[COLS.saldo]),
+        saldo_vencido:    nf(r[COLS.saldoVencido]),
+        valor_aprobado:   nf(r[COLS.valorAprobado]),
+        estado, fuente: "acosux"
+      });
+    }
+    if(!detalle.length) throw new Error("No se encontraron documentos en el reporte");
+
+    const cnt = e => detalle.filter(d=>d.estado===e).length;
+    const monto = e => detalle.filter(d=>d.estado===e).reduce((s,d)=>s+d.saldo,0);
+    const nCumplido = cnt("Cumplido"), nAtrasado = cnt("Atrasado"),
+          nImpago = cnt("Impago"), nVigente = cnt("Vigente");
+    const cumplio = nCumplido + nAtrasado, total = cumplio + nImpago;
+    const pct = total>0 ? cumplio/total*100 : 0;
+    const cSemPct = pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)";
+
+    _corridaPreview = { detalle, resumen:{
+      anio, mes, semana, fecha_corte: fechaCorte,
+      cumplieron: cumplio, no_cumplieron: nImpago, total,
+      n_vigentes: nVigente, pct,
+      monto_cumplio: monto("Cumplido")+monto("Atrasado"),
+      monto_no_cumplio: monto("Impago"),
+      monto_vigente: monto("Vigente")
+    }};
+
+    previewEl.innerHTML =
+      '<div style="font-weight:700;color:var(--azul);font-size:13px;margin-bottom:10px">Vista previa · Corrida '+fechaCorte.split("-").reverse().join("/")+' · Sem.'+semana+'</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px">' +
+      [["Cumplido",nCumplido,"var(--verde)"],["Atrasado",nAtrasado,"#D4A012"],["Impago",nImpago,"var(--rojo)"],["Vigente (excl.)",nVigente,"var(--grisMed)"],["% Cumplimiento",pct.toFixed(1)+"%",cSemPct]]
+        .map(m=>'<div style="text-align:center;padding:10px;background:#fff;border:1px solid var(--borde);border-radius:8px">' +
+          '<div style="font-size:10px;color:var(--grisMed);font-weight:700;text-transform:uppercase">'+m[0]+'</div>' +
+          '<div style="font-size:22px;font-weight:800;font-family:Raleway,sans-serif;color:'+m[2]+'">'+(typeof m[1]==="number"?m[1].toLocaleString("en-US"):m[1])+'</div></div>').join("") +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--grisMed)">' +
+        '<b>'+detalle.length.toLocaleString("en-US")+'</b> documentos · '+omitidas+' filas de agrupación omitidas · ' +
+        'Cumplió $'+Math.round(_corridaPreview.resumen.monto_cumplio).toLocaleString("en-US")+' · ' +
+        'Impago $'+Math.round(_corridaPreview.resumen.monto_no_cumplio).toLocaleString("en-US")+' · ' +
+        'Vigente $'+Math.round(_corridaPreview.resumen.monto_vigente).toLocaleString("en-US")+'</div>' +
+      (nImpago===0 && nVigente===0
+        ? '<div style="margin-top:10px;padding:10px;background:#FFF7E6;border:1px solid #F0D2AF;border-radius:8px;font-size:11px;color:#8a6d1a"><b>⚠ Atención:</b> el 100% de los documentos vienen aprobados. Verifica que el export se hizo DESPUÉS de marcar la aprobación real de la corrida (y no con "seleccionar todo").</div>'
+        : '');
+    if(btnGuardar){ btnGuardar.disabled=false; btnGuardar.style.opacity="1"; }
+  } catch(e){
+    console.error("[corrida]", e);
+    previewEl.innerHTML = '<div style="color:var(--rojo);font-size:12px">✕ '+esc(e.message)+'</div>';
+  }
+}
+window.corridaLeerExcel = corridaLeerExcel;
+
+async function corridaGuardar(){
+  if(!_corridaPreview){ showError("Primero sube y valida el archivo."); return; }
+  const idEmpresa = parseInt(document.getElementById("ic-empresa")?.value);
+  if(!idEmpresa){ showError("Selecciona la empresa."); return; }
+  const btn = document.getElementById("ic-btn-guardar");
+  if(btn){ btn.disabled=true; btn.textContent="⏳ Guardando..."; }
+  const { detalle, resumen } = _corridaPreview;
+  try {
+    // 1. Idempotencia: borrar el detalle previo de esta empresa+corte
+    await fetch(SUPA_URL+"/rest/v1/fin_pago_prov_corrida?id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+resumen.fecha_corte,
+      {method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Prefer":"return=minimal"}});
+    // 2. Insertar detalle en lotes de 200
+    for(let i=0;i<detalle.length;i+=200){
+      const lote = detalle.slice(i,i+200).map(d=>({...d, id_empresa:idEmpresa, actualizado_por: sesion?.email||"sistema"}));
+      await sbInsert("fin_pago_prov_corrida", lote);
+    }
+    // 3. Upsert del agregado semanal en pagos_proveedores
+    const fila = {
+      id_empresa: idEmpresa, anio: resumen.anio, mes: resumen.mes, semana: resumen.semana,
+      periodo_label: "Sem."+resumen.semana, fecha_corte: resumen.fecha_corte,
+      cumplieron: resumen.cumplieron, no_cumplieron: resumen.no_cumplieron, total: resumen.total,
+      n_vigentes: resumen.n_vigentes,
+      pct_cumplimiento: Math.round(resumen.pct*10)/10,
+      pct_incumplimiento: Math.round((100-resumen.pct)*10)/10,
+      meta_pct: 0.95,
+      semaforo: resumen.pct>=95?"verde":resumen.pct>=80?"amarillo":"rojo",
+      monto_cumplio: Math.round(resumen.monto_cumplio*100)/100,
+      monto_no_cumplio: Math.round(resumen.monto_no_cumplio*100)/100,
+      monto_vigente: Math.round(resumen.monto_vigente*100)/100,
+      fuente: "acosux"
+    };
+    const previa = (window._sbCache?.pagos_proveedores||[])
+      .find(p => p.id_empresa===idEmpresa && p.fecha_corte===resumen.fecha_corte);
+    if(previa){ await sbUpdate("pagos_proveedores", fila, "id", previa.id); }
+    else      { await sbInsert("pagos_proveedores", fila); }
+    // 4. Refrescar caché del agregado
+    window._sbCache.pagos_proveedores = await sbQuery("pagos_proveedores", {select:"*", order:"anio.asc,mes.asc", limit:500}).catch(()=>window._sbCache.pagos_proveedores||[]);
+    _corridaPreview = null;
+    showSuccess("✓ Corrida guardada: "+detalle.length.toLocaleString("en-US")+" documentos · "+fila.periodo_label+" · "+fila.pct_cumplimiento+"% cumplimiento");
+    renderContent();
+  } catch(e){
+    console.error("[corrida]", e);
+    showError("Error al guardar la corrida: "+e.message);
+    if(btn){ btn.disabled=false; btn.textContent="💾 Guardar Corrida"; }
+  }
+}
+window.corridaGuardar = corridaGuardar;
+
+async function corridaEliminar(idAgregado, fechaCorte, idEmpresa){
+  const confirmar = await new Promise(resolve => {
+    openModal('<div class="modal-box">' +
+      '<button class="modal-close" onclick="window._corDelCancel()">✕</button>' +
+      '<div class="modal-title" style="color:#E03355">🗑 Eliminar corrida de pagos</div>' +
+      '<div class="modal-sub" style="margin-bottom:14px">Se elimina el agregado semanal y su detalle por documento</div>' +
+      '<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px;margin-bottom:18px">' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px">' +
+          '<span style="color:var(--grisMed);font-weight:600">Fecha de corte</span>' +
+          '<span style="color:var(--azul);font-weight:700">'+esc((fechaCorte||"").split("-").reverse().join("/"))+'</span></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button class="btn-cancel" onclick="window._corDelCancel()">Cancelar</button>' +
+        '<button class="btn-save" style="background:#E03355" onclick="window._corDelConfirm()">🗑 Eliminar</button>' +
+      '</div></div>');
+    window._corDelCancel  = () => { closeModal(); resolve(false); };
+    window._corDelConfirm = () => { closeModal(); resolve(true);  };
+  });
+  if(!confirmar) return;
+  try {
+    await fetch(SUPA_URL+"/rest/v1/fin_pago_prov_corrida?id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+fechaCorte,
+      {method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Prefer":"return=minimal"}});
+    const r = await fetch(SUPA_URL+"/rest/v1/pagos_proveedores?id=eq."+idAgregado,
+      {method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY}});
+    if(!r.ok) throw new Error("DELETE "+r.status);
+    window._sbCache.pagos_proveedores = await sbQuery("pagos_proveedores", {select:"*", order:"anio.asc,mes.asc", limit:500}).catch(()=>[]);
+    showSuccess("✓ Corrida eliminada");
+    renderContent();
+  } catch(e){ showError("Error: "+e.message); console.error("[corrida]", e); }
+}
+window.corridaEliminar = corridaEliminar;
+
+// ── Gestión de documentos de una corrida: inactivar / reactivar ──────
+// Un documento inactivo NO participa del análisis (indicador, montos).
+// Se exige motivo y queda auditado (quién/cuándo). El agregado semanal
+// se recalcula automáticamente al cambiar el estado de un documento.
+window._corDocsCtx = null;
+
+async function corridaVerDocs(idEmpresa, fechaCorte){
+  openModal('<div class="modal-box" style="max-width:940px;width:94vw">' +
+    '<button class="modal-close" onclick="closeModal()">✕</button>' +
+    '<div class="modal-title">📄 Documentos de la corrida · '+esc(fechaCorte.split("-").reverse().join("/"))+'</div>' +
+    '<div class="modal-sub">Inactiva los documentos que no deben participar del análisis (requiere motivo)</div>' +
+    '<div id="cordocs-body" style="margin-top:12px"><div style="color:var(--grisMed);font-size:12px;padding:20px;text-align:center">⏳ Cargando documentos...</div></div>' +
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cerrar</button></div>' +
+    '</div>');
+  try {
+    const rows = await sbQueryPaginated("fin_pago_prov_corrida",
+      "id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+fechaCorte+"&order=saldo.desc");
+    window._corDocsCtx = { rows: Array.isArray(rows)?rows:[], idEmpresa, fechaCorte,
+                           filtroEstado:"", busca:"", motivoId:null };
+    _corDocsRender();
+  } catch(e){
+    console.error("[cordocs]", e);
+    const b = document.getElementById("cordocs-body");
+    if(b) b.innerHTML = '<div style="color:var(--rojo);font-size:12px">✕ '+esc(e.message)+'</div>';
+  }
+}
+window.corridaVerDocs = corridaVerDocs;
+
+function _corDocsRender(){
+  const ctx = window._corDocsCtx; if(!ctx) return;
+  const body = document.getElementById("cordocs-body"); if(!body) return;
+  const activos   = ctx.rows.filter(d=>d.activo!==false);
+  const inactivos = ctx.rows.filter(d=>d.activo===false);
+  const cntE = e => activos.filter(d=>d.estado===e).length;
+  const cum = cntE("Cumplido")+cntE("Atrasado"), tot = cum+cntE("Impago");
+  const pct = tot>0 ? cum/tot*100 : 0;
+  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)"};
+
+  // Filtro + búsqueda
+  let lista = ctx.filtroEstado==="__inactivos"
+    ? inactivos
+    : (ctx.filtroEstado ? activos.filter(d=>d.estado===ctx.filtroEstado) : ctx.rows);
+  if(ctx.busca){
+    const q = ctx.busca.toLowerCase();
+    lista = lista.filter(d => (d.proveedor_nombre||"").toLowerCase().includes(q) ||
+                              (d.documento||"").toLowerCase().includes(q) ||
+                              (d.proveedor_ruc||"").includes(q));
+  }
+  const CAP = 300;
+  const mostradas = lista.slice(0, CAP);
+
+  let h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  [["","Todos",ctx.rows.length,"var(--azul)"],["Cumplido","Cumplido",cntE("Cumplido"),CE.Cumplido],
+   ["Atrasado","Atrasado",cntE("Atrasado"),CE.Atrasado],["Impago","Impago",cntE("Impago"),CE.Impago],
+   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
+    .forEach(ch=>{
+      const sel = ctx.filtroEstado===ch[0];
+      h += '<button onclick="window._corDocsCtx.filtroEstado=\''+ch[0]+'\';_corDocsRender()" ' +
+        'style="padding:5px 12px;font-size:11px;font-weight:700;border-radius:14px;cursor:pointer;border:1.5px solid '+ch[3]+';' +
+        (sel?'background:'+ch[3]+';color:#fff':'background:transparent;color:'+ch[3])+'">'+ch[1]+' · '+ch[2]+'</button>';
+    });
+  h += '<span style="margin-left:auto;font-size:12px;font-weight:800;color:'+(pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)")+';align-self:center">% activo: '+pct.toFixed(1)+'%</span>';
+  h += '</div>';
+  h += '<input type="text" placeholder="🔍 Buscar por proveedor, RUC o documento..." value="'+esc(ctx.busca)+'" ' +
+    'oninput="window._corDocsCtx.busca=this.value;clearTimeout(window._corDocsT);window._corDocsT=setTimeout(_corDocsRender,250)" ' +
+    'class="form-input" style="width:100%;margin-bottom:10px;font-size:12px"/>';
+
+  h += '<div style="max-height:46vh;overflow-y:auto;border:1px solid var(--borde);border-radius:8px">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+    '<thead><tr style="position:sticky;top:0;background:var(--azul);z-index:1">' +
+    ["Documento","Proveedor","Vence","Estado","Saldo","",""].map(x=>'<th style="color:#fff;padding:6px 8px;text-align:left;font-size:9px">'+x+'</th>').join("") +
+    '</tr></thead><tbody>';
+  mostradas.forEach((d,i)=>{
+    const inact = d.activo===false;
+    const bg = inact ? "#F5F3FF" : (i%2===0?"var(--blanco)":"var(--grisLight)");
+    const st = inact ? 'text-decoration:line-through;opacity:.6' : '';
+    h += '<tr>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
+        (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>';
+    if(ctx.motivoId===d.id){
+      h += '<td colspan="2" style="padding:6px 8px;background:#FFF7E6;white-space:nowrap">' +
+        '<input type="text" id="cordocs-motivo" placeholder="Motivo de inactivación (obligatorio)" class="form-input" style="width:220px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+        '<button onclick="_corDocsInactivar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:#8B5CF6;color:#fff;border-radius:4px;cursor:pointer">Confirmar</button> ' +
+        '<button onclick="window._corDocsCtx.motivoId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button></td>';
+    } else {
+      h += '<td style="padding:6px 8px;background:'+bg+';text-align:right" colspan="2">' +
+        (inact
+          ? '<button onclick="_corDocsReactivar('+d.id+')" style="padding:3px 8px;font-size:10px;border:1px solid var(--verde);color:var(--verde);background:transparent;border-radius:4px;cursor:pointer">↩ Reactivar</button>'
+          : '<button onclick="window._corDocsCtx.motivoId='+d.id+';_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-motivo\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid #8B5CF6;color:#8B5CF6;background:transparent;border-radius:4px;cursor:pointer">🚫 Inactivar</button>') +
+        '</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  if(lista.length>CAP) h += '<div style="font-size:10px;color:var(--grisMed);margin-top:6px">Mostrando '+CAP+' de '+lista.length.toLocaleString("en-US")+' — usa la búsqueda para encontrar documentos específicos</div>';
+  body.innerHTML = h;
+}
+window._corDocsRender = _corDocsRender;
+
+async function _corDocsInactivar(id){
+  const ctx = window._corDocsCtx; if(!ctx) return;
+  const motivo = (document.getElementById("cordocs-motivo")?.value||"").trim();
+  if(!motivo){ showError("El motivo de inactivación es obligatorio."); return; }
+  try {
+    const cambios = { activo:false, inactivo_motivo:motivo,
+                      inactivado_por: sesion?.email||"sistema",
+                      inactivado_en: new Date().toISOString() };
+    await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
+    const row = ctx.rows.find(d=>d.id===id);
+    if(row) Object.assign(row, cambios);
+    ctx.motivoId = null;
+    await _corridaRecalcAgregado();
+    _corDocsRender();
+    showSuccess("✓ Documento inactivado — el indicador se recalculó");
+  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+}
+window._corDocsInactivar = _corDocsInactivar;
+
+async function _corDocsReactivar(id){
+  const ctx = window._corDocsCtx; if(!ctx) return;
+  try {
+    const cambios = { activo:true, inactivo_motivo:null, inactivado_por:null, inactivado_en:null };
+    await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
+    const row = ctx.rows.find(d=>d.id===id);
+    if(row) Object.assign(row, cambios);
+    await _corridaRecalcAgregado();
+    _corDocsRender();
+    showSuccess("✓ Documento reactivado — el indicador se recalculó");
+  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+}
+window._corDocsReactivar = _corDocsReactivar;
+
+async function _corridaRecalcAgregado(){
+  // Recalcula la fila agregada de pagos_proveedores para el corte del modal,
+  // considerando SOLO documentos activos.
+  const ctx = window._corDocsCtx; if(!ctx) return;
+  const act = ctx.rows.filter(d=>d.activo!==false);
+  const cnt = e => act.filter(d=>d.estado===e).length;
+  const monto = e => act.filter(d=>d.estado===e).reduce((s,d)=>s+parseFloat(d.saldo||0),0);
+  const cumplio = cnt("Cumplido")+cnt("Atrasado"), noCumplio = cnt("Impago");
+  const total = cumplio+noCumplio;
+  const pct = total>0 ? cumplio/total*100 : 0;
+  const fila = {
+    cumplieron:cumplio, no_cumplieron:noCumplio, total, n_vigentes:cnt("Vigente"),
+    pct_cumplimiento: Math.round(pct*10)/10,
+    pct_incumplimiento: Math.round((100-pct)*10)/10,
+    semaforo: pct>=95?"verde":pct>=80?"amarillo":"rojo",
+    monto_cumplio: Math.round((monto("Cumplido")+monto("Atrasado"))*100)/100,
+    monto_no_cumplio: Math.round(monto("Impago")*100)/100,
+    monto_vigente: Math.round(monto("Vigente")*100)/100
+  };
+  const agg = (window._sbCache?.pagos_proveedores||[])
+    .find(p => p.id_empresa===ctx.idEmpresa && p.fecha_corte===ctx.fechaCorte);
+  if(agg){
+    await sbUpdate("pagos_proveedores", fila, "id", agg.id);
+    Object.assign(agg, fila); // reflejar en caché sin recargar
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ESTADO DE RESULTADOS (Contifico) — Parser y guardado del REAL mensual
