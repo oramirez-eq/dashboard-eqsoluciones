@@ -4773,9 +4773,24 @@ function renderFinanzas(){
     '<div style="width:'+Math.min(valor/meta*100,100)+'%;height:100%;background:'+c+'"></div></div>' +
     '<span class="kpi-badge" style="background:'+c+'18;color:'+c+';border:1px solid '+c+'40;font-size:11px;padding:4px 12px">'+(sem==="verde"?"✓ EN META":sem==="amarillo"?"⚡ ALERTA":"✕ CRÍTICO")+'</span>' +
     '</div>';
+  // Montos $ de las corridas del período (el $ es tan importante como el conteo)
+  const mPagado$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_cumplio||0),0);
+  const mImpago$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_no_cumplio||0),0);
+  const _cxpRows = (window._sbCache?.cuentas_por_pagar||[]).filter(x=>x.id_empresa===_empObjF?.id);
+  const cxpTot$ = _cxpRows.reduce((s,x)=>s+parseFloat(x.valor_pagar||0),0);
+  const cxpVen$ = _cxpRows.filter(x=>x.estado_cartera!=="POR VENCER").reduce((s,x)=>s+parseFloat(x.valor_pagar||0),0);
+  const _f$ = v => "$"+Math.round(v).toLocaleString("en-US");
   html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">';
-  [{l:"Total Transacciones",v:totalTxn.toLocaleString(),c:"var(--tq)"},{l:"Cumplieron",v:totalCumpl.toLocaleString(),c:"var(--verde)"},{l:"No Cumplieron",v:totalNoCumpl.toLocaleString(),c:"var(--rojo)"},{l:"Facturas en Cartera",v:totalCuentas.toLocaleString(),c:"var(--azul)"},{l:"Facturas Vencidas",v:cuentasVenc.toLocaleString(),c:"var(--rojo)"},{l:"Por Vencer",v:(totalCuentas-cuentasVenc).toLocaleString(),c:"var(--verde)"}].forEach(m=>{
-    html += '<div class="metric-card" style="padding:14px 18px"><div class="metric-label">'+m.l+'</div><div style="font-size:26px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div></div>';
+  [{l:"Total Transacciones",v:totalTxn.toLocaleString(),s:_f$(mPagado$+mImpago$),c:"var(--tq)"},
+   {l:"Cumplieron",v:totalCumpl.toLocaleString(),s:_f$(mPagado$)+" pagado",c:"var(--verde)"},
+   {l:"No Cumplieron",v:totalNoCumpl.toLocaleString(),s:_f$(mImpago$)+" impago",c:"var(--rojo)"},
+   {l:"Facturas en Cartera",v:totalCuentas.toLocaleString(),s:cxpTot$>0?_f$(cxpTot$):null,c:"var(--azul)"},
+   {l:"Facturas Vencidas",v:cuentasVenc.toLocaleString(),s:cxpVen$>0?_f$(cxpVen$):null,c:"var(--rojo)"},
+   {l:"Por Vencer",v:(totalCuentas-cuentasVenc).toLocaleString(),s:cxpTot$>0?_f$(cxpTot$-cxpVen$):null,c:"var(--verde)"}].forEach(m=>{
+    html += '<div class="metric-card" style="padding:14px 18px"><div class="metric-label">'+m.l+'</div>' +
+      '<div style="font-size:26px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div>' +
+      (m.s?'<div style="font-size:12px;font-weight:700;color:'+m.c+';opacity:.85;margin-top:2px;font-variant-numeric:tabular-nums">'+m.s+'</div>':'') +
+      '</div>';
   });
   html += '</div></div>';
 
@@ -6373,6 +6388,9 @@ async function corridaLeerExcel(){
 
     const cnt = e => detalle.filter(d=>d.estado===e).length;
     const monto = e => detalle.filter(d=>d.estado===e).reduce((s,d)=>s+d.saldo,0);
+    // "$ pagado" = Σ valor aprobado (dinero real), no el saldo del documento
+    const montoPagadoImp = detalle.filter(d=>d.estado==="Cumplido"||d.estado==="Atrasado")
+      .reduce((s,d)=>s+d.valor_aprobado,0);
     const nCumplido = cnt("Cumplido"), nAtrasado = cnt("Atrasado"),
           nImpago = cnt("Impago"), nVigente = cnt("Vigente");
     const cumplio = nCumplido + nAtrasado, total = cumplio + nImpago;
@@ -6383,7 +6401,7 @@ async function corridaLeerExcel(){
       anio, mes, semana, fecha_corte: fechaCorte,
       cumplieron: cumplio, no_cumplieron: nImpago, total,
       n_vigentes: nVigente, pct,
-      monto_cumplio: monto("Cumplido")+monto("Atrasado"),
+      monto_cumplio: montoPagadoImp,
       monto_no_cumplio: monto("Impago"),
       monto_vigente: monto("Vigente")
     }};
@@ -6533,7 +6551,7 @@ function _corDocsRender(){
   const cntE = e => activos.filter(d=>d.estado===e).length;
   const cum = cntE("Cumplido")+cntE("Atrasado"), tot = cum+cntE("Impago");
   const pct = tot>0 ? cum/tot*100 : 0;
-  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)"};
+  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)", Anticipo:"var(--tq)"};
   let lista = ctx.filtroEstado==="__inactivos" ? inactivos
     : (ctx.filtroEstado ? activos.filter(d=>d.estado===ctx.filtroEstado) : ctx.rows);
   if(ctx.busca){
@@ -6546,7 +6564,8 @@ function _corDocsRender(){
   let h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
   [["","Todos",ctx.rows.length,"var(--azul)"],["Cumplido","Cumplido",cntE("Cumplido"),CE.Cumplido],
    ["Atrasado","Atrasado",cntE("Atrasado"),CE.Atrasado],["Impago","Impago",cntE("Impago"),CE.Impago],
-   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
+   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["Anticipo","💵 Anticipos",cntE("Anticipo"),CE.Anticipo],
+   ["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
     .forEach(ch=>{
       const sel = ctx.filtroEstado===ch[0];
       h += '<button onclick="window._corDocsCtx.filtroEstado=\''+ch[0]+'\';_corDocsRender()" ' +
@@ -6572,7 +6591,9 @@ function _corDocsRender(){
     const editado = vOrig!==null && Math.abs(vAp-vOrig)>0.005;
     h += '<tr>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
-      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';max-width:220px" title="'+esc(d.proveedor_nombre||"")+'">' +
+        '<div style="'+st+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.proveedor_nombre||"—")+'</div>' +
+        (d.detalle?'<div style="font-size:9px;color:var(--grisMed);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.detalle)+'">'+esc(d.detalle)+'</div>':'') + '</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
         (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
@@ -6594,7 +6615,8 @@ window._corDocsRender = _corDocsRender;
 // reactivar, búsqueda ágil y orden por columnas. Todo auditado.
 // ═══════════════════════════════════════════════════════════════
 window._ppgCtx = null;
-window._ppgSort = window._ppgSort || {col:"saldo", dir:"desc"};
+// Orden por defecto: proveedor → factura → estado (pedido de Roberto/Oscar)
+window._ppgSort = window._ppgSort || {col:"proveedor", dir:"asc"};
 window._ppgFiltro = window._ppgFiltro || {estado:"", busca:""};
 
 async function ppgCargar(){
@@ -6657,8 +6679,12 @@ function _ppgLista(){
   };
   lista = lista.slice().sort((a,b)=>{
     const va=val(a), vb=val(b);
-    const r = (typeof va==="number") ? va-vb : String(va).localeCompare(String(vb));
-    return s.dir==="asc" ? r : -r;
+    let r = (typeof va==="number") ? va-vb : String(va).localeCompare(String(vb));
+    if(r!==0) return s.dir==="asc" ? r : -r;
+    // Desempate fijo: proveedor → factura → estado
+    return (a.proveedor_nombre||"").localeCompare(b.proveedor_nombre||"") ||
+           (a.documento||"").localeCompare(b.documento||"") ||
+           (a.estado||"").localeCompare(b.estado||"");
   });
   return lista;
 }
@@ -6710,7 +6736,7 @@ function _ppgRender(){
   const cum = cntE("Cumplido")+cntE("Atrasado"), tot = cum+cntE("Impago");
   const pct = tot>0 ? cum/tot*100 : 0;
   const cPct = pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)";
-  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)"};
+  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)", Anticipo:"var(--tq)"};
   const lista = _ppgLista();
   const CAP = 400;
   const activasFiltradas = lista.filter(d=>d.activo!==false);
@@ -6720,7 +6746,8 @@ function _ppgRender(){
   let h = '<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
   [["","Todos",ctx.rows.length,"var(--azul)"],["Cumplido","Cumplido",cntE("Cumplido"),CE.Cumplido],
    ["Atrasado","Atrasado",cntE("Atrasado"),CE.Atrasado],["Impago","Impago",cntE("Impago"),CE.Impago],
-   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
+   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["Anticipo","💵 Anticipos",cntE("Anticipo"),CE.Anticipo],
+   ["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
     .forEach(ch=>{
       const sel = f.estado===ch[0];
       h += '<button onclick="window._ppgFiltro.estado=\''+ch[0]+'\';_ppgRender()" ' +
@@ -6737,6 +6764,8 @@ function _ppgRender(){
     'oninput="window._ppgFiltro.busca=this.value;clearTimeout(window._ppgT);window._ppgT=setTimeout(_ppgRender,250)" ' +
     'class="form-input" style="flex:1;min-width:240px;font-size:12px"/>' +
     '<div id="ppg-selbar" style="display:flex;gap:8px;align-items:center">'+_ppgSelBar()+'</div>' +
+    '<button onclick="ppgNuevoAnticipo()" style="padding:6px 12px;font-size:11px;font-weight:700;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer" title="Registrar un pago que no viene de Acosux (no es factura aún)">➕ Anticipo</button>' +
+    '<button onclick="ppgImprimir()" style="padding:6px 12px;font-size:11px;font-weight:700;border:1px solid var(--azul);color:var(--azul);background:transparent;border-radius:6px;cursor:pointer" title="Resumen ejecutivo de la programación para Presidencia">🖨 PDF Ejecutivo</button>' +
     '</div>';
 
   const arrow = c => s.col===c ? (s.dir==="asc"?" ▲":" ▼") : "";
@@ -6762,15 +6791,21 @@ function _ppgRender(){
       '<td style="padding:6px 8px;background:'+bg+';text-align:center">' +
         (inact?'':'<input type="checkbox" '+(ctx.sel.has(d.id)?'checked':'')+' onchange="_ppgToggleSel('+d.id+',this.checked)" style="cursor:pointer"/>') + '</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
-      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+' · RUC '+esc(d.proveedor_ruc||"—")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';max-width:190px" title="'+esc(d.proveedor_nombre||"")+' · RUC '+esc(d.proveedor_ruc||"—")+'">' +
+        '<div style="'+st+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.proveedor_nombre||"—")+'</div>' +
+        (d.detalle?'<div style="font-size:9px;color:var(--grisMed);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.detalle)+'">'+esc(d.detalle)+'</div>':'') + '</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:center;font-weight:600;color:'+((d.dias_vencidos||0)>0?'var(--rojo)':'var(--verde)')+'">'+(d.dias_vencidos!=null?d.dias_vencidos:"—")+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
         (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>';
     if(ctx.editId===d.id){
-      h += '<td colspan="2" style="padding:6px 8px;background:#E8F6F8;white-space:nowrap">$ ' +
-        '<input type="number" step="0.01" min="0" id="ppg-valor" value="'+vAp.toFixed(2)+'" class="form-input" style="width:110px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+      const saldoNum = parseFloat(d.saldo||0);
+      h += '<td colspan="2" style="padding:6px 8px;background:#E8F6F8;white-space:nowrap">' +
+        '<select id="ppg-pct" class="form-select" style="width:66px;font-size:11px;padding:4px 4px;display:inline-block" ' +
+          'onchange="if(this.value){var v=document.getElementById(\'ppg-valor\');v.value=('+saldoNum+'*this.value/100).toFixed(2);}" title="Porcentaje del saldo — calcula el valor automáticamente">' +
+          '<option value="">%</option>'+[10,20,25,30,40,50,60,70,75,80,90,100].map(p=>'<option value="'+p+'">'+p+'%</option>').join('')+'</select> $ ' +
+        '<input type="number" step="0.01" min="0" id="ppg-valor" value="'+vAp.toFixed(2)+'" onfocus="this.select()" class="form-input" style="width:110px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
         '<button onclick="_ppgPagar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:var(--tq);color:#fff;border-radius:4px;cursor:pointer">✓ Guardar</button> ' +
         '<button onclick="window._ppgCtx.editId=null;_ppgRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button> ' +
         '<span style="font-size:9px;color:var(--grisMed)">0 = no se paga</span></td>';
@@ -6804,18 +6839,26 @@ async function _ppgPagar(id){
   const val = parseFloat(document.getElementById("ppg-valor")?.value);
   if(!isFinite(val) || val < 0){ showError("Ingresa un valor válido (0 o mayor)."); return; }
   const row = ctx.rows.find(d=>d.id===id); if(!row) return;
+  const esAnticipo = row.estado==="Anticipo";
   const saldo = parseFloat(row.saldo||0);
-  if(val > saldo*1.01){ showError("El valor ($"+val.toLocaleString("en-US")+") no puede superar el saldo del documento ($"+saldo.toLocaleString("en-US")+")."); return; }
+  if(!esAnticipo && val > saldo*1.01){ showError("El valor ($"+val.toLocaleString("en-US")+") no puede superar el saldo del documento ($"+saldo.toLocaleString("en-US")+")."); return; }
   try {
     const venc = (row.dias_vencidos||0) > 0;
     const aprob = val > 0;
-    const cambios = {
-      valor_aprobado: Math.round(val*100)/100,
-      estado: aprob ? (venc ? "Atrasado" : "Cumplido") : (venc ? "Impago" : "Vigente"),
-      dias_desviacion: (aprob && venc) ? Math.round(row.dias_vencidos||0) : null,
-      editado_por: sesion?.email||"sistema",
-      editado_en: new Date().toISOString()
-    };
+    const cambios = esAnticipo
+      ? { // Los anticipos no cambian de estado: se ajusta el monto (saldo = valor)
+          valor_aprobado: Math.round(val*100)/100,
+          saldo: Math.round(val*100)/100,
+          editado_por: sesion?.email||"sistema",
+          editado_en: new Date().toISOString()
+        }
+      : {
+          valor_aprobado: Math.round(val*100)/100,
+          estado: aprob ? (venc ? "Atrasado" : "Cumplido") : (venc ? "Impago" : "Vigente"),
+          dias_desviacion: (aprob && venc) ? Math.round(row.dias_vencidos||0) : null,
+          editado_por: sesion?.email||"sistema",
+          editado_en: new Date().toISOString()
+        };
     await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
     Object.assign(row, cambios);
     ctx.editId = null;
@@ -6829,7 +6872,8 @@ window._ppgPagar = _ppgPagar;
 async function _ppgPagarMasivo(){
   // Pago MASIVO: aplica "pagar saldo completo" a todos los documentos seleccionados.
   const ctx = window._ppgCtx; if(!ctx || !ctx.sel.size) return;
-  const items = ctx.rows.filter(d=>ctx.sel.has(d.id) && d.activo!==false && parseFloat(d.saldo||0)>0);
+  // Los anticipos ya son montos a pagar — se excluyen del pago masivo (no se reclasifican)
+  const items = ctx.rows.filter(d=>ctx.sel.has(d.id) && d.activo!==false && d.estado!=="Anticipo" && parseFloat(d.saldo||0)>0);
   if(!items.length){ showError("No hay documentos activos con saldo en la selección."); return; }
   const tot = items.reduce((s,d)=>s+parseFloat(d.saldo||0),0);
   const ok = await new Promise(resolve=>{
@@ -6916,6 +6960,166 @@ async function _ppgReactivar(id){
 }
 window._ppgReactivar = _ppgReactivar;
 
+async function ppgNuevoAnticipo(){
+  // Registra un pago que NO viene de Acosux (no es factura aún): anticipos de
+  // proyecto, pagos semanales a contratistas, etc. Suma al total a pagar de la
+  // corrida y al PDF ejecutivo, pero NO afecta el indicador de cumplimiento.
+  const ctx = window._ppgCtx;
+  if(!ctx){ showError("Primero carga una corrida."); return; }
+  openModal('<div class="modal-box">' +
+    '<button class="modal-close" onclick="closeModal()">✕</button>' +
+    '<div class="modal-title">➕ Registrar Anticipo</div>' +
+    '<div class="modal-sub" style="margin-bottom:14px">Pago programado que no viene de Acosux · corrida '+esc(ctx.fecha.split("-").reverse().join("/"))+'</div>' +
+    '<div class="form-group"><label class="form-label">Proveedor / Beneficiario</label>' +
+    '<input type="text" id="ant-prov" class="form-input" placeholder="Ej: TRANSCOCHANCAY, Carlos Coello..."/></div>' +
+    '<div class="form-group"><label class="form-label">Valor a pagar ($)</label>' +
+    '<input type="number" step="0.01" min="0.01" id="ant-valor" class="form-input" placeholder="0.00" onfocus="this.select()"/></div>' +
+    '<div class="form-group"><label class="form-label">Detalle Bien/Servicio</label>' +
+    '<input type="text" id="ant-detalle" class="form-input" placeholder="Ej: 3er Anticipo Cascajo Proy. Expansión, 40% horas máquina..."/></div>' +
+    '<div class="modal-footer">' +
+    '<button class="btn-cancel" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn-save" onclick="_ppgGuardarAnticipo()">💾 Registrar</button>' +
+    '</div></div>');
+  setTimeout(()=>document.getElementById("ant-prov")?.focus(), 60);
+}
+window.ppgNuevoAnticipo = ppgNuevoAnticipo;
+
+async function _ppgGuardarAnticipo(){
+  const ctx = window._ppgCtx; if(!ctx) return;
+  const prov = (document.getElementById("ant-prov")?.value||"").trim();
+  const val  = parseFloat(document.getElementById("ant-valor")?.value);
+  const det  = (document.getElementById("ant-detalle")?.value||"").trim();
+  if(!prov){ showError("Ingresa el proveedor/beneficiario."); return; }
+  if(!isFinite(val) || val<=0){ showError("Ingresa un valor mayor a 0."); return; }
+  if(!det){ showError("Ingresa el detalle del bien/servicio."); return; }
+  try {
+    const agg = (window._sbCache?.pagos_proveedores||[])
+      .find(p=>p.id_empresa===ctx.idEmp && p.fecha_corte===ctx.fecha);
+    const fila = {
+      id_empresa: ctx.idEmp, fecha_corte: ctx.fecha,
+      anio: agg?.anio || new Date(ctx.fecha+"T00:00:00").getFullYear(),
+      mes:  agg?.mes  || new Date(ctx.fecha+"T00:00:00").getMonth()+1,
+      semana: agg?.semana || _isoWeek(new Date(ctx.fecha+"T00:00:00")),
+      proveedor_nombre: prov, documento: "ANTICIPO", detalle: det,
+      saldo: Math.round(val*100)/100, valor_aprobado: Math.round(val*100)/100,
+      valor_aprobado_original: 0,
+      dias_vencidos: 0, estado: "Anticipo", fuente: "manual",
+      editado_por: sesion?.email||"sistema", editado_en: new Date().toISOString(),
+      actualizado_por: sesion?.email||"sistema"
+    };
+    const res = await sbInsert("fin_pago_prov_corrida", fila);
+    const nuevo = Array.isArray(res) ? res[0] : res;
+    ctx.rows.push(nuevo && nuevo.id ? nuevo : fila);
+    closeModal();
+    _ppgRender();
+    showSuccess("✓ Anticipo registrado: "+prov+" · $"+val.toLocaleString("en-US",{minimumFractionDigits:2}));
+  } catch(e){ console.error("[ppg anticipo]", e); showError("Error: "+e.message); }
+}
+window._ppgGuardarAnticipo = _ppgGuardarAnticipo;
+
+function ppgImprimir(){
+  // PDF ejecutivo de la programación de pagos para Presidencia.
+  // Genera una vista imprimible (Guardar como PDF desde el diálogo del navegador).
+  // Estándar de moneda: formato americano — coma miles, punto decimales.
+  const ctx = window._ppgCtx;
+  if(!ctx || !ctx.rows.length){ showError("Primero carga una corrida."); return; }
+  const fmt$ = v => "$"+(Math.round(v*100)/100).toLocaleString("en-US",{minimumFractionDigits:2, maximumFractionDigits:2});
+  const act = ctx.rows.filter(d=>d.activo!==false);
+  const pagos = act.filter(d=>parseFloat(d.valor_aprobado||0)>0);
+  const facturas = pagos.filter(d=>d.estado!=="Anticipo");
+  const anticipos = pagos.filter(d=>d.estado==="Anticipo");
+  const totalPagar = pagos.reduce((s,d)=>s+parseFloat(d.valor_aprobado||0),0);
+  const totalAnticipos = anticipos.reduce((s,d)=>s+parseFloat(d.valor_aprobado||0),0);
+  // Cartera restante = saldo no cubierto de documentos reales (excluye anticipos)
+  const carteraDocs = act.filter(d=>d.estado!=="Anticipo");
+  const carteraTotal = carteraDocs.reduce((s,d)=>s+parseFloat(d.saldo||0),0);
+  const carteraRestante = carteraDocs.reduce((s,d)=>s+Math.max(parseFloat(d.saldo||0)-parseFloat(d.valor_aprobado||0),0),0);
+  const pctCartera = carteraTotal>0 ? (carteraTotal-carteraRestante)/carteraTotal*100 : 0;
+  // Agregación por proveedor
+  const porProv = {};
+  pagos.forEach(d=>{
+    const k = d.proveedor_nombre||"(sin nombre)";
+    if(!porProv[k]) porProv[k] = {nombre:k, n:0, monto:0, detalles:new Set()};
+    porProv[k].n++;
+    porProv[k].monto += parseFloat(d.valor_aprobado||0);
+    if(d.detalle) porProv[k].detalles.add(d.detalle);
+    else if(d.estado==="Anticipo") porProv[k].detalles.add("Anticipo");
+  });
+  const provs = Object.values(porProv).sort((a,b)=>b.monto-a.monto);
+  const top5 = provs.slice(0,5);
+  const maxTop = top5.length ? top5[0].monto : 1;
+  // Aging de la cartera restante
+  const buckets = [["Por vencer",d=>(d.dias_vencidos||0)<=0],["1-30",d=>d.dias_vencidos>=1&&d.dias_vencidos<=30],
+    ["31-60",d=>d.dias_vencidos>=31&&d.dias_vencidos<=60],["61-90",d=>d.dias_vencidos>=61&&d.dias_vencidos<=90],
+    ["+90",d=>d.dias_vencidos>90]];
+  const agingHtml = buckets.map(b=>{
+    const m = carteraDocs.filter(b[1]).reduce((s,d)=>s+Math.max(parseFloat(d.saldo||0)-parseFloat(d.valor_aprobado||0),0),0);
+    return '<div class="aging"><div class="aging-lbl">'+b[0]+'</div><div class="aging-val">'+fmt$(m)+'</div></div>';
+  }).join("");
+  const empNom = (window._sbCache?.empresas||[]).find(e=>e.id===ctx.idEmp)?.nombre || "";
+  const fechaCor = ctx.fecha.split("-").reverse().join("/");
+  const ahora = new Date().toLocaleString("es-EC",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+
+  const filasProv = provs.map((p,i)=>'<tr'+(i%2?' class="alt"':'')+'>' +
+    '<td>'+esc(p.nombre)+'</td><td class="c">'+p.n+'</td>' +
+    '<td class="r b">'+fmt$(p.monto)+'</td>' +
+    '<td class="c">'+(totalPagar>0?(p.monto/totalPagar*100).toFixed(1):"0.0")+'%</td>' +
+    '<td class="det">'+esc(Array.from(p.detalles).slice(0,3).join(" · "))+'</td></tr>').join("");
+  const barsTop = top5.map(p=>'<div class="top-row"><div class="top-nom">'+esc(p.nombre)+'</div>' +
+    '<div class="top-bar-wrap"><div class="top-bar" style="width:'+(p.monto/maxTop*100).toFixed(0)+'%"></div></div>' +
+    '<div class="top-val">'+fmt$(p.monto)+'</div></div>').join("");
+
+  const w = window.open("", "_blank");
+  if(!w){ showError("El navegador bloqueó la ventana — permite pop-ups para este sitio."); return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Programación de Pagos · '+esc(empNom)+' · '+fechaCor+'</title><style>' +
+    '*{margin:0;padding:0;box-sizing:border-box;font-family:"Helvetica Neue",Arial,sans-serif}' +
+    'body{padding:28px;color:#1A3756;font-size:12px}' +
+    '.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #00B4AA;padding-bottom:12px;margin-bottom:16px}' +
+    '.hdr h1{font-size:20px;color:#1A3756}.hdr .sub{font-size:11px;color:#6B87A8;margin-top:3px}' +
+    '.hdr .meta{text-align:right;font-size:10px;color:#6B87A8}' +
+    '.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}' +
+    '.kpi{border:1px solid #D0D9E2;border-left:4px solid #00B4AA;border-radius:8px;padding:12px}' +
+    '.kpi .l{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#6B87A8;font-weight:700}' +
+    '.kpi .v{font-size:22px;font-weight:800;margin-top:4px}.kpi .s{font-size:9px;color:#6B87A8;margin-top:2px}' +
+    'h2{font-size:13px;margin:16px 0 8px;color:#1A3756;border-bottom:1px solid #D0D9E2;padding-bottom:4px}' +
+    '.top-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}' +
+    '.top-nom{width:220px;font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.top-bar-wrap{flex:1;height:14px;background:#EEF1F8;border-radius:4px;overflow:hidden}' +
+    '.top-bar{height:100%;background:#00B4AA;border-radius:4px}' +
+    '.top-val{width:110px;text-align:right;font-weight:800;font-size:11px}' +
+    'table{width:100%;border-collapse:collapse;font-size:10px;margin-top:6px}' +
+    'th{background:#1A3756;color:#fff;padding:6px 8px;text-align:left;font-size:9px}' +
+    'td{padding:5px 8px;border-bottom:1px solid #E8EDF3}tr.alt td{background:#F6F8FB}' +
+    '.c{text-align:center}.r{text-align:right}.b{font-weight:800}.det{color:#6B87A8;font-size:9px}' +
+    '.aging-wrap{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:6px}' +
+    '.aging{border:1px solid #D0D9E2;border-radius:6px;padding:8px;text-align:center}' +
+    '.aging-lbl{font-size:9px;color:#6B87A8;font-weight:700;text-transform:uppercase}' +
+    '.aging-val{font-size:13px;font-weight:800;margin-top:3px}' +
+    '.foot{margin-top:22px;padding-top:8px;border-top:1px solid #D0D9E2;font-size:8px;color:#8A96A2;text-align:center}' +
+    '@media print{body{padding:12px}.kpi .v{font-size:18px}}' +
+    '</style></head><body>' +
+    '<div class="hdr"><div><h1>💰 Programación de Pagos</h1>' +
+    '<div class="sub">'+esc(empNom)+' · Corrida del '+fechaCor+'</div></div>' +
+    '<div class="meta">Generado por '+esc(sesion?.email||"—")+'<br>'+ahora+'<br>EQ PLATFORM</div></div>' +
+    '<div class="kpis">' +
+    '<div class="kpi"><div class="l">Total a Pagar</div><div class="v" style="color:#00B4AA">'+fmt$(totalPagar)+'</div><div class="s">'+pagos.length+' pagos programados</div></div>' +
+    '<div class="kpi"><div class="l">Proveedores</div><div class="v">'+provs.length+'</div><div class="s">'+facturas.length+' facturas · '+anticipos.length+' anticipos ('+fmt$(totalAnticipos)+')</div></div>' +
+    '<div class="kpi"><div class="l">Cartera Restante</div><div class="v" style="color:#E03355">'+fmt$(carteraRestante)+'</div><div class="s">deuda tras esta corrida</div></div>' +
+    '<div class="kpi"><div class="l">Cobertura de Cartera</div><div class="v">'+pctCartera.toFixed(1)+'%</div><div class="s">de la deuda total ('+fmt$(carteraTotal)+') se paga</div></div>' +
+    '</div>' +
+    '<h2>🏆 Top 5 Proveedores por Pago</h2>'+barsTop +
+    '<h2>📋 Detalle por Proveedor</h2>' +
+    '<table><thead><tr><th>Proveedor</th><th class="c"># Docs</th><th class="r">$ a Pagar</th><th class="c">% Total</th><th>Detalle Bien/Servicio</th></tr></thead>' +
+    '<tbody>'+filasProv+'</tbody>' +
+    '<tfoot><tr><th>TOTAL</th><th class="c">'+pagos.length+'</th><th class="r">'+fmt$(totalPagar)+'</th><th class="c">100%</th><th></th></tr></tfoot></table>' +
+    '<h2>📊 Cartera Restante por Antigüedad</h2><div class="aging-wrap">'+agingHtml+'</div>' +
+    '<div class="foot">Información privilegiada y confidencial · EQS Soluciones Empresariales SAS · Formato de moneda: US$ (miles con coma, decimales con punto)</div>' +
+    '</body></html>');
+  w.document.close();
+  w.onload = () => setTimeout(()=>w.print(), 300);
+}
+window.ppgImprimir = ppgImprimir;
+
 async function _ppgRecalcAgregado(){
   // Recalcula la fila agregada (pagos_proveedores) de la corrida en gestión,
   // considerando SOLO documentos activos. Actualiza BD y caché.
@@ -6923,6 +7127,10 @@ async function _ppgRecalcAgregado(){
   const act = ctx.rows.filter(d=>d.activo!==false);
   const cnt = e => act.filter(d=>d.estado===e).length;
   const monto = e => act.filter(d=>d.estado===e).reduce((s,d)=>s+parseFloat(d.saldo||0),0);
+  // IMPORTANTE: "$ pagado" = Σ VALOR APROBADO (dinero real que sale), NO el saldo
+  // del documento — con pagos parciales el saldo inflaba el monto (bug 2026-07-09).
+  const montoPagado = act.filter(d=>d.estado==="Cumplido"||d.estado==="Atrasado")
+    .reduce((s,d)=>s+parseFloat(d.valor_aprobado||0),0);
   const cumplio = cnt("Cumplido")+cnt("Atrasado"), noCumplio = cnt("Impago");
   const total = cumplio+noCumplio;
   const pct = total>0 ? cumplio/total*100 : 0;
@@ -6931,7 +7139,7 @@ async function _ppgRecalcAgregado(){
     pct_cumplimiento: Math.round(pct*10)/10,
     pct_incumplimiento: Math.round((100-pct)*10)/10,
     semaforo: pct>=95?"verde":pct>=80?"amarillo":"rojo",
-    monto_cumplio: Math.round((monto("Cumplido")+monto("Atrasado"))*100)/100,
+    monto_cumplio: Math.round(montoPagado*100)/100,
     monto_no_cumplio: Math.round(monto("Impago")*100)/100,
     monto_vigente: Math.round(monto("Vigente")*100)/100
   };
