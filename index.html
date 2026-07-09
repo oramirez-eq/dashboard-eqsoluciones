@@ -4769,7 +4769,7 @@ function renderFinanzas(){
   let wherePP="id_empresa=(SELECT id FROM empresas WHERE codigo=?) AND anio=?";
   let paramsPP=[emp,anioF];
   if(mesF>0){wherePP+=" AND mes=?"; paramsPP.push(mesF);}
-  const pagos=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento,semaforo FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
+  const pagos=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento,semaforo,fecha_corte,cargado_por FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
   const totalTxn   =pagos.reduce((s,r)=>s+(r.total||0),0);
   const totalCumpl =pagos.reduce((s,r)=>s+(r.cumplieron||0),0);
   const totalNoCumpl=pagos.reduce((s,r)=>s+(r.no_cumplieron||0),0);
@@ -4881,7 +4881,10 @@ function renderFinanzas(){
     pagos.forEach((r,i)=>{
       const bg=i%2===0?"var(--blanco)":"var(--grisLight)";
       const cp=r.pct_cumplimiento>=95?"var(--verde)":r.pct_cumplimiento>=80?"var(--amarillo)":"var(--rojo)";
-      html += '<tr><td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700">'+esc(r.periodo_label||"—")+'</td>' +
+      const clickDocs = r.fecha_corte
+        ? ' onclick="corridaVerDocs('+(_empObjF?.id||0)+',\''+esc(r.fecha_corte)+'\')" style="cursor:pointer" title="Click para ver los documentos de esta corrida — inactivar o editar valor a pagar"'
+        : '';
+      html += '<tr'+clickDocs+'><td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700;color:'+(r.fecha_corte?'var(--tq)':'inherit')+'">'+esc(r.periodo_label||"—")+(r.fecha_corte?' 📄':'')+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--verde);font-weight:600">'+(r.cumplieron||0).toLocaleString()+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--rojo);font-weight:600">'+(r.no_cumplieron||0).toLocaleString()+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700">'+(r.total||0).toLocaleString()+'</td>' +
@@ -4939,7 +4942,7 @@ function renderFinanzas(){
   html += '<div class="card" style="background:var(--grisLight);border:1px dashed var(--tq)">' +
     '<div style="display:flex;align-items:center;gap:14px"><span style="font-size:24px">💸</span>' +
     '<div><div style="font-weight:700;color:var(--azul);font-size:13px">Fuente: corrida de pagos semanal (reporte Aprobar Pagos · ACOSUX)</div>' +
-    '<div style="font-size:11px;color:var(--grisMed);margin-top:2px">Cada viernes se carga el reporte exportado al momento de la corrida en <b>+ Ingresar Datos → Corrida de Pagos</b>. Cumplió = documentos aprobados (a tiempo o atrasados) · No Cumplió = vencidos sin aprobar · los no vencidos sin aprobar se excluyen del total.</div></div>' +
+    '<div style="font-size:11px;color:var(--grisMed);margin-top:2px">Cada semana (Lukmar: lunes) se carga el reporte exportado al momento de la corrida en <b>+ Ingresar Datos → Corrida de Pagos</b>. Cumplió = documentos aprobados (a tiempo o atrasados) · No Cumplió = vencidos sin aprobar · los no vencidos sin aprobar se excluyen. Click en una semana de la tabla para ver/editar sus documentos.</div></div>' +
     '<button onclick="irAIngreso(\'corrida\')" style="margin-left:auto;flex-shrink:0;padding:8px 14px;font-size:11px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📥 Cargar corrida</button>' +
     '</div></div>';
   return html;
@@ -5341,11 +5344,15 @@ function renderIngresoDatos(){
         '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">CUMPLIÓ</th>' +
         '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">NO CUMPLIÓ</th>' +
         '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">% CUMPL.</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">CARGADO POR</th>' +
         '<th style="padding:8px"></th>' +
         '</tr></thead><tbody>';
       histCP.forEach(p => {
         const pc = parseFloat(p.pct_cumplimiento||0);
         const cSem = pc>=95?"var(--verde)":pc>=80?"var(--amarillo)":"var(--rojo)";
+        const fCarga = p.cargado_en
+          ? new Date(p.cargado_en).toLocaleString("es-EC",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})
+          : null;
         html += '<tr style="border-bottom:1px solid var(--borde)">' +
           '<td style="padding:8px">'+esc(empMapC[p.id_empresa]||"—")+'</td>' +
           '<td style="padding:8px">'+esc(p.fecha_corte||"—")+'</td>' +
@@ -5353,6 +5360,7 @@ function renderIngresoDatos(){
           '<td style="padding:8px;text-align:right;color:var(--verde);font-weight:600">'+(p.cumplieron||0).toLocaleString("en-US")+'</td>' +
           '<td style="padding:8px;text-align:right;color:var(--rojo);font-weight:600">'+(p.no_cumplieron||0).toLocaleString("en-US")+'</td>' +
           '<td style="padding:8px;text-align:center;font-weight:700;color:'+cSem+'">'+pc.toFixed(1)+'%</td>' +
+          '<td style="padding:8px;font-size:11px">'+esc(p.cargado_por||"—")+(fCarga?'<div style="font-size:9px;color:var(--grisMed)">'+fCarga+'</div>':'')+'</td>' +
           '<td style="padding:8px;text-align:right;white-space:nowrap">' +
             '<button onclick="corridaVerDocs('+p.id_empresa+',\''+esc(p.fecha_corte||"")+'\')" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:6px">📄 Documentos</button>' +
             '<button onclick="corridaEliminar('+p.id+',\''+esc(p.fecha_corte||"")+'\','+p.id_empresa+')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button>' +
@@ -6440,9 +6448,11 @@ async function corridaGuardar(){
     // 1. Idempotencia: borrar el detalle previo de esta empresa+corte
     await fetch(SUPA_URL+"/rest/v1/fin_pago_prov_corrida?id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+resumen.fecha_corte,
       {method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY,"Prefer":"return=minimal"}});
-    // 2. Insertar detalle en lotes de 200
+    // 2. Insertar detalle en lotes de 200 (conserva el valor importado para auditoría)
     for(let i=0;i<detalle.length;i+=200){
-      const lote = detalle.slice(i,i+200).map(d=>({...d, id_empresa:idEmpresa, actualizado_por: sesion?.email||"sistema"}));
+      const lote = detalle.slice(i,i+200).map(d=>({...d, id_empresa:idEmpresa,
+        valor_aprobado_original: d.valor_aprobado,
+        actualizado_por: sesion?.email||"sistema"}));
       await sbInsert("fin_pago_prov_corrida", lote);
     }
     // 3. Upsert del agregado semanal en pagos_proveedores
@@ -6458,7 +6468,9 @@ async function corridaGuardar(){
       monto_cumplio: Math.round(resumen.monto_cumplio*100)/100,
       monto_no_cumplio: Math.round(resumen.monto_no_cumplio*100)/100,
       monto_vigente: Math.round(resumen.monto_vigente*100)/100,
-      fuente: "acosux"
+      fuente: "acosux",
+      cargado_por: sesion?.email||"sistema",
+      cargado_en: new Date().toISOString()
     };
     const previa = (window._sbCache?.pagos_proveedores||[])
       .find(p => p.id_empresa===idEmpresa && p.fecha_corte===resumen.fecha_corte);
@@ -6521,13 +6533,13 @@ async function corridaVerDocs(idEmpresa, fechaCorte){
     '<div class="modal-title">📄 Documentos de la corrida · '+esc(fechaCorte.split("-").reverse().join("/"))+'</div>' +
     '<div class="modal-sub">Inactiva los documentos que no deben participar del análisis (requiere motivo)</div>' +
     '<div id="cordocs-body" style="margin-top:12px"><div style="color:var(--grisMed);font-size:12px;padding:20px;text-align:center">⏳ Cargando documentos...</div></div>' +
-    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cerrar</button></div>' +
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal();renderContent()">Cerrar</button></div>' +
     '</div>');
   try {
     const rows = await sbQueryPaginated("fin_pago_prov_corrida",
       "id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+fechaCorte+"&order=saldo.desc");
     window._corDocsCtx = { rows: Array.isArray(rows)?rows:[], idEmpresa, fechaCorte,
-                           filtroEstado:"", busca:"", motivoId:null };
+                           filtroEstado:"", busca:"", motivoId:null, editId:null };
     _corDocsRender();
   } catch(e){
     console.error("[cordocs]", e);
@@ -6579,30 +6591,47 @@ function _corDocsRender(){
   h += '<div style="max-height:46vh;overflow-y:auto;border:1px solid var(--borde);border-radius:8px">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
     '<thead><tr style="position:sticky;top:0;background:var(--azul);z-index:1">' +
-    ["Documento","Proveedor","Vence","Estado","Saldo","",""].map(x=>'<th style="color:#fff;padding:6px 8px;text-align:left;font-size:9px">'+x+'</th>').join("") +
+    ["Documento","Proveedor","Vence","Estado","Saldo","Pagar/Pagado","",""].map(x=>'<th style="color:#fff;padding:6px 8px;text-align:left;font-size:9px">'+x+'</th>').join("") +
     '</tr></thead><tbody>';
   mostradas.forEach((d,i)=>{
     const inact = d.activo===false;
     const bg = inact ? "#F5F3FF" : (i%2===0?"var(--blanco)":"var(--grisLight)");
     const st = inact ? 'text-decoration:line-through;opacity:.6' : '';
+    const vAp = parseFloat(d.valor_aprobado||0);
+    const vOrig = d.valor_aprobado_original!=null ? parseFloat(d.valor_aprobado_original) : null;
+    const editado = vOrig!==null && Math.abs(vAp-vOrig)>0.005;
     h += '<tr>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
-      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
         (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>';
-    if(ctx.motivoId===d.id){
-      h += '<td colspan="2" style="padding:6px 8px;background:#FFF7E6;white-space:nowrap">' +
-        '<input type="text" id="cordocs-motivo" placeholder="Motivo de inactivación (obligatorio)" class="form-input" style="width:220px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
-        '<button onclick="_corDocsInactivar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:#8B5CF6;color:#fff;border-radius:4px;cursor:pointer">Confirmar</button> ' +
-        '<button onclick="window._corDocsCtx.motivoId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button></td>';
+    if(ctx.editId===d.id){
+      // Edición inline del valor a pagar/pagado (ajustes de Presidencia)
+      h += '<td colspan="3" style="padding:6px 8px;background:#E8F6F8;white-space:nowrap">$ ' +
+        '<input type="number" step="0.01" min="0" id="cordocs-valor" value="'+vAp.toFixed(2)+'" class="form-input" style="width:110px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+        '<button onclick="_corDocsEditarValor('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:var(--tq);color:#fff;border-radius:4px;cursor:pointer">✓ Guardar</button> ' +
+        '<button onclick="window._corDocsCtx.editId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button> ' +
+        '<span style="font-size:9px;color:var(--grisMed)">saldo $'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+' · 0 = no se paga</span></td>';
     } else {
-      h += '<td style="padding:6px 8px;background:'+bg+';text-align:right" colspan="2">' +
-        (inact
-          ? '<button onclick="_corDocsReactivar('+d.id+')" style="padding:3px 8px;font-size:10px;border:1px solid var(--verde);color:var(--verde);background:transparent;border-radius:4px;cursor:pointer">↩ Reactivar</button>'
-          : '<button onclick="window._corDocsCtx.motivoId='+d.id+';_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-motivo\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid #8B5CF6;color:#8B5CF6;background:transparent;border-radius:4px;cursor:pointer">🚫 Inactivar</button>') +
+      h += '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:'+(vAp>0?'var(--tq)':'var(--grisMed)')+'">' +
+        '$'+vAp.toLocaleString("en-US",{minimumFractionDigits:2}) +
+        (editado?' <span title="Valor importado: $'+vOrig.toLocaleString("en-US",{minimumFractionDigits:2})+' · editado por '+esc(d.editado_por||"—")+'" style="cursor:help">✏️</span>':'') +
         '</td>';
+      if(ctx.motivoId===d.id){
+        h += '<td colspan="2" style="padding:6px 8px;background:#FFF7E6;white-space:nowrap">' +
+          '<input type="text" id="cordocs-motivo" placeholder="Motivo de inactivación (obligatorio)" class="form-input" style="width:200px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+          '<button onclick="_corDocsInactivar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:#8B5CF6;color:#fff;border-radius:4px;cursor:pointer">Confirmar</button> ' +
+          '<button onclick="window._corDocsCtx.motivoId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button></td>';
+      } else {
+        h += '<td style="padding:6px 8px;background:'+bg+';text-align:right;white-space:nowrap" colspan="2">' +
+          (inact
+            ? '<button onclick="_corDocsReactivar('+d.id+')" style="padding:3px 8px;font-size:10px;border:1px solid var(--verde);color:var(--verde);background:transparent;border-radius:4px;cursor:pointer">↩ Reactivar</button>'
+            : '<button onclick="window._corDocsCtx.editId='+d.id+';window._corDocsCtx.motivoId=null;_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-valor\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:4px">✏️ Pagar</button>' +
+              '<button onclick="window._corDocsCtx.motivoId='+d.id+';window._corDocsCtx.editId=null;_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-motivo\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid #8B5CF6;color:#8B5CF6;background:transparent;border-radius:4px;cursor:pointer">🚫</button>') +
+          '</td>';
+      }
     }
     h += '</tr>';
   });
@@ -6611,6 +6640,38 @@ function _corDocsRender(){
   body.innerHTML = h;
 }
 window._corDocsRender = _corDocsRender;
+
+async function _corDocsEditarValor(id){
+  // Edita el valor PAGAR/PAGADO de un documento (ajustes de Presidencia a última hora).
+  // Recalcula el ESTADO del documento: >0 = se paga (Cumplido/Atrasado según vencimiento);
+  // 0 = no se paga (Impago si está vencido, Vigente si no).
+  const ctx = window._corDocsCtx; if(!ctx) return;
+  const inp = document.getElementById("cordocs-valor");
+  const val = parseFloat(inp?.value);
+  if(!isFinite(val) || val < 0){ showError("Ingresa un valor válido (0 o mayor)."); return; }
+  const row = ctx.rows.find(d=>d.id===id);
+  if(!row) return;
+  const saldo = parseFloat(row.saldo||0);
+  if(val > saldo*1.01){ showError("El valor a pagar ($"+val.toLocaleString("en-US")+") no puede superar el saldo del documento ($"+saldo.toLocaleString("en-US")+")."); return; }
+  try {
+    const venc = (row.dias_vencidos||0) > 0;
+    const aprob = val > 0;
+    const cambios = {
+      valor_aprobado: Math.round(val*100)/100,
+      estado: aprob ? (venc ? "Atrasado" : "Cumplido") : (venc ? "Impago" : "Vigente"),
+      dias_desviacion: (aprob && venc) ? Math.round(row.dias_vencidos||0) : null,
+      editado_por: sesion?.email||"sistema",
+      editado_en: new Date().toISOString()
+    };
+    await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
+    Object.assign(row, cambios);
+    ctx.editId = null;
+    await _corridaRecalcAgregado();
+    _corDocsRender();
+    showSuccess("✓ Valor actualizado a $"+cambios.valor_aprobado.toLocaleString("en-US",{minimumFractionDigits:2})+" · estado: "+cambios.estado+" · indicador recalculado");
+  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+}
+window._corDocsEditarValor = _corDocsEditarValor;
 
 async function _corDocsInactivar(id){
   const ctx = window._corDocsCtx; if(!ctx) return;
