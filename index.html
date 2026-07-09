@@ -92,46 +92,6 @@
       font-size:14px; letter-spacing:2px;
       pointer-events:none; opacity:.9;
     }
-    /* ── ¡VAMOS ECUADOR! Grito guerrero pulsante 🇪🇨 ── */
-    /* Posicionado ARRIBA del card como banner flotante (no compite con el logo) */
-    .wc-grito{
-      position:absolute;
-      top:46px; left:50%;
-      transform:translateX(-50%);
-      width:auto; min-width:300px; max-width:90vw;
-      padding:8px 22px;
-      background:linear-gradient(90deg,#FFD700 0%,#FFD700 33.33%,#003893 33.33%,#003893 66.66%,#CE1126 66.66%,#CE1126 100%);
-      border-radius:8px;
-      text-align:center;
-      box-shadow:0 8px 22px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.18);
-      overflow:hidden;
-      z-index:6;
-      animation:wc-grito-pulse 2.4s ease-in-out infinite;
-    }
-    .wc-grito::before{
-      content:''; position:absolute; inset:1px;
-      background:linear-gradient(180deg,rgba(15,30,55,.85) 0%,rgba(15,30,55,.95) 100%);
-      border-radius:7px;
-    }
-    .wc-grito-text{
-      position:relative; z-index:1;
-      font-family:'Raleway','Open Sans',sans-serif;
-      font-size:13px; font-weight:900; letter-spacing:.05em;
-      color:#FFD700;
-      text-shadow:0 1px 0 #003893, 0 0 12px rgba(255,215,0,.55);
-      display:block;
-    }
-    .wc-grito-sub{
-      position:relative; z-index:1;
-      font-size:9px; font-weight:700; letter-spacing:.18em;
-      color:#FFF; opacity:.85;
-      display:block; margin-top:2px;
-      text-transform:uppercase;
-    }
-    @keyframes wc-grito-pulse{
-      0%,100%{transform:translateX(-50%) scale(1); box-shadow:0 8px 22px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.18)}
-      50%{transform:translateX(-50%) scale(1.04); box-shadow:0 10px 30px rgba(253,184,19,.45), inset 0 0 0 2px rgba(255,215,0,.45)}
-    }
     .pw-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:var(--grisMed)}
     .pwd-strength{height:3px;border-radius:2px;margin-top:6px;transition:all .3s;background:var(--grisLight)}
 
@@ -815,7 +775,7 @@
     .sb-subitem.active .sb-subitem-code { color:#00B4AA; }
     /* ── Fin Sidebar ──────────────────────────────────────── */
 
-    </style></head><body><div id="loading-screen"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQ"/><div class="loading-bar"><div class="loading-fill"></div></div><div class="loading-text" id="loading-text">Iniciando...</div></div><div id="login-screen" class="hidden"><div class="wc-grito" onclick="wcShowFixtures()" style="cursor:pointer" title="Ver calendario del Mundial 2026"><span class="wc-grito-text">¡VAMOS ECUADOR! 🇪🇨</span><span class="wc-grito-sub">· SI SE PUEDE ·</span></div><div class="login-card"><div class="wc-ball-wrap" onclick="wcBounce(this);wcShowFixtures()" title="¡VAMOS ECUADOR! SI SE PUEDE 🇪🇨 · Ver calendario"><div class="wc-ball"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="wc-sheen" cx="30%" cy="26%" r="72%"><stop offset="0%" stop-color="#FFF" stop-opacity=".75"/><stop offset="40%" stop-color="#FFF" stop-opacity=".1"/><stop offset="100%" stop-color="#FFF" stop-opacity="0"/></radialGradient><radialGradient id="wc-shadow" cx="50%" cy="50%" r="50%"><stop offset="55%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".4"/></radialGradient><clipPath id="wc-clip"><circle cx="50" cy="50" r="48"/></clipPath></defs><circle cx="50" cy="50" r="48" fill="#FFFFFF"/><g clip-path="url(#wc-clip)"><!-- Panel TL: ECUADOR (amarillo) --><path d="M50,2 C28,5 12,18 5,40 C18,38 30,32 40,28 C46,18 49,9 50,2 Z" fill="#FFD700"/><!-- Sol andino simbólico (Ecuador) --><g transform="translate(22,22)"><circle r="3.2" fill="#CE1126"/><g stroke="#003893" stroke-width=".9" stroke-linecap="round"><line x1="0" y1="-5" x2="0" y2="-7.5"/><line x1="3.5" y1="-3.5" x2="5.3" y2="-5.3"/><line x1="5" y1="0" x2="7.5" y2="0"/><line x1="3.5" y1="3.5" x2="5.3" y2="5.3"/><line x1="0" y1="5" x2="0" y2="7.5"/><line x1="-3.5" y1="3.5" x2="-5.3" y2="5.3"/><line x1="-5" y1="0" x2="-7.5" y2="0"/><line x1="-3.5" y1="-3.5" x2="-5.3" y2="-5.3"/></g></g><!-- Panel TR: CANADÁ (rojo) --><path d="M50,2 C72,5 88,18 95,40 C82,38 70,32 60,28 C54,18 51,9 50,2 Z" fill="#CE1126"/><!-- Hoja de arce estilizada (Canadá) --><g transform="translate(75,22)" fill="#FFFFFF"><path d="M0,-7 L1.8,-3.5 L5,-4 L3.5,0 L7,1 L3,3 L4,7 L0,4 L-4,7 L-3,3 L-7,1 L-3.5,0 L-5,-4 L-1.8,-3.5 Z"/></g><!-- Panel BR: MÉXICO (verde) --><path d="M95,40 C98,62 88,84 70,95 C68,82 64,70 60,62 C72,56 84,48 95,40 Z" fill="#006847"/><!-- Sol/Águila azteca simplificada (México) --><g transform="translate(78,68)"><circle r="3.5" fill="#FFD700" stroke="#FFFFFF" stroke-width=".5"/><g stroke="#FFFFFF" stroke-width="1.1" stroke-linecap="round"><line x1="0" y1="-5.5" x2="0" y2="-8.5"/><line x1="4" y1="-4" x2="6" y2="-6"/><line x1="5.5" y1="0" x2="8.5" y2="0"/><line x1="4" y1="4" x2="6" y2="6"/><line x1="0" y1="5.5" x2="0" y2="8.5"/><line x1="-4" y1="4" x2="-6" y2="6"/><line x1="-5.5" y1="0" x2="-8.5" y2="0"/><line x1="-4" y1="-4" x2="-6" y2="-6"/></g></g><!-- Panel BL: USA (azul) --><path d="M5,40 C2,62 12,84 30,95 C32,82 36,70 40,62 C28,56 16,48 5,40 Z" fill="#003893"/><!-- Estrellas (USA) --><g fill="#FFFFFF"><path d="M22,68 L23.2,71 L26.4,71 L23.8,73 L24.8,76 L22,74.2 L19.2,76 L20.2,73 L17.6,71 L20.8,71 Z"/><path d="M30,78 L30.9,80.2 L33.3,80.2 L31.3,81.7 L32.1,84 L30,82.6 L27.9,84 L28.7,81.7 L26.7,80.2 L29.1,80.2 Z"/><path d="M16,55 L16.9,57.2 L19.3,57.2 L17.3,58.7 L18.1,61 L16,59.6 L13.9,61 L14.7,58.7 L12.7,57.2 L15.1,57.2 Z"/></g><!-- Costuras blancas punteadas en los bordes --><path d="M50,2 C28,5 12,18 5,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M50,2 C72,5 88,18 95,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M95,40 C98,62 88,84 70,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M5,40 C2,62 12,84 30,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><!-- "Onda" central que conecta los paneles --><path d="M40,28 Q50,40 60,28" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><path d="M40,62 Q50,50 60,62" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><!-- Núcleo central: insignia "26" --><circle cx="50" cy="50" r="11" fill="#FFFFFF" stroke="#0F1E37" stroke-width="1.1"/><circle cx="50" cy="50" r="9.5" fill="none" stroke="#FFD700" stroke-width=".8"/><text x="50" y="47" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="4.5" font-weight="900" fill="#0F1E37" letter-spacing=".5">MUNDIAL</text><text x="50" y="55" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="8" font-weight="900" fill="#CE1126">26</text></g><!-- Brillo + sombra global --><circle cx="50" cy="50" r="48" fill="url(#wc-sheen)" pointer-events="none"/><circle cx="50" cy="50" r="48" fill="url(#wc-shadow)" pointer-events="none"/><!-- Borde exterior --><circle cx="50" cy="50" r="48" fill="none" stroke="#0F1E37" stroke-width="1.8"/></svg></div><div class="wc-badge">⚽ Mundial 2026<span class="wc-count" id="wc-countdown">cargando...</span></div><div class="wc-flags">🇦🇷 🇲🇽 🇺🇸 🇨🇦</div></div><div class="login-logo"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQSolutions"/></div><div class="login-divider"></div><div class="login-title">Acceso al Dashboard</div><div class="login-sub">Ingresa tus credenciales para continuar</div><div class="login-error" id="login-error"></div><div class="form-group"><label class="form-label">Correo electr&oacute;nico</label><input type="email" id="login-email" class="form-input" placeholder="usuario@empresa.com"/></div><div class="form-group"><label class="form-label">Contrase&ntilde;a</label><div class="pw-wrap"><input type="password" id="login-pwd" class="form-input" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/><button class="pw-toggle" id="pw-eye" onclick="togglePwd()">&#128065;</button></div></div><button class="login-btn" id="login-btn" onclick="doLogin()">Ingresar</button><div class="login-footer"><span style="color:var(--tq);font-weight:700">EQ PLATFORM</span> &copy; 2026</div></div></div><div id="sidebar" class="collapsed" style="display:none">
+    </style></head><body><div id="loading-screen"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQ"/><div class="loading-bar"><div class="loading-fill"></div></div><div class="loading-text" id="loading-text">Iniciando...</div></div><div id="login-screen" class="hidden"><div class="login-card"><div class="wc-ball-wrap" onclick="wcBounce(this);wcShowFixtures()" title="¡VAMOS ECUADOR! SI SE PUEDE 🇪🇨 · Ver calendario"><div class="wc-ball"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="wc-sheen" cx="30%" cy="26%" r="72%"><stop offset="0%" stop-color="#FFF" stop-opacity=".75"/><stop offset="40%" stop-color="#FFF" stop-opacity=".1"/><stop offset="100%" stop-color="#FFF" stop-opacity="0"/></radialGradient><radialGradient id="wc-shadow" cx="50%" cy="50%" r="50%"><stop offset="55%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".4"/></radialGradient><clipPath id="wc-clip"><circle cx="50" cy="50" r="48"/></clipPath></defs><circle cx="50" cy="50" r="48" fill="#FFFFFF"/><g clip-path="url(#wc-clip)"><!-- Panel TL: ECUADOR (amarillo) --><path d="M50,2 C28,5 12,18 5,40 C18,38 30,32 40,28 C46,18 49,9 50,2 Z" fill="#FFD700"/><!-- Sol andino simbólico (Ecuador) --><g transform="translate(22,22)"><circle r="3.2" fill="#CE1126"/><g stroke="#003893" stroke-width=".9" stroke-linecap="round"><line x1="0" y1="-5" x2="0" y2="-7.5"/><line x1="3.5" y1="-3.5" x2="5.3" y2="-5.3"/><line x1="5" y1="0" x2="7.5" y2="0"/><line x1="3.5" y1="3.5" x2="5.3" y2="5.3"/><line x1="0" y1="5" x2="0" y2="7.5"/><line x1="-3.5" y1="3.5" x2="-5.3" y2="5.3"/><line x1="-5" y1="0" x2="-7.5" y2="0"/><line x1="-3.5" y1="-3.5" x2="-5.3" y2="-5.3"/></g></g><!-- Panel TR: CANADÁ (rojo) --><path d="M50,2 C72,5 88,18 95,40 C82,38 70,32 60,28 C54,18 51,9 50,2 Z" fill="#CE1126"/><!-- Hoja de arce estilizada (Canadá) --><g transform="translate(75,22)" fill="#FFFFFF"><path d="M0,-7 L1.8,-3.5 L5,-4 L3.5,0 L7,1 L3,3 L4,7 L0,4 L-4,7 L-3,3 L-7,1 L-3.5,0 L-5,-4 L-1.8,-3.5 Z"/></g><!-- Panel BR: MÉXICO (verde) --><path d="M95,40 C98,62 88,84 70,95 C68,82 64,70 60,62 C72,56 84,48 95,40 Z" fill="#006847"/><!-- Sol/Águila azteca simplificada (México) --><g transform="translate(78,68)"><circle r="3.5" fill="#FFD700" stroke="#FFFFFF" stroke-width=".5"/><g stroke="#FFFFFF" stroke-width="1.1" stroke-linecap="round"><line x1="0" y1="-5.5" x2="0" y2="-8.5"/><line x1="4" y1="-4" x2="6" y2="-6"/><line x1="5.5" y1="0" x2="8.5" y2="0"/><line x1="4" y1="4" x2="6" y2="6"/><line x1="0" y1="5.5" x2="0" y2="8.5"/><line x1="-4" y1="4" x2="-6" y2="6"/><line x1="-5.5" y1="0" x2="-8.5" y2="0"/><line x1="-4" y1="-4" x2="-6" y2="-6"/></g></g><!-- Panel BL: USA (azul) --><path d="M5,40 C2,62 12,84 30,95 C32,82 36,70 40,62 C28,56 16,48 5,40 Z" fill="#003893"/><!-- Estrellas (USA) --><g fill="#FFFFFF"><path d="M22,68 L23.2,71 L26.4,71 L23.8,73 L24.8,76 L22,74.2 L19.2,76 L20.2,73 L17.6,71 L20.8,71 Z"/><path d="M30,78 L30.9,80.2 L33.3,80.2 L31.3,81.7 L32.1,84 L30,82.6 L27.9,84 L28.7,81.7 L26.7,80.2 L29.1,80.2 Z"/><path d="M16,55 L16.9,57.2 L19.3,57.2 L17.3,58.7 L18.1,61 L16,59.6 L13.9,61 L14.7,58.7 L12.7,57.2 L15.1,57.2 Z"/></g><!-- Costuras blancas punteadas en los bordes --><path d="M50,2 C28,5 12,18 5,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M50,2 C72,5 88,18 95,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M95,40 C98,62 88,84 70,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M5,40 C2,62 12,84 30,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><!-- "Onda" central que conecta los paneles --><path d="M40,28 Q50,40 60,28" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><path d="M40,62 Q50,50 60,62" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><!-- Núcleo central: insignia "26" --><circle cx="50" cy="50" r="11" fill="#FFFFFF" stroke="#0F1E37" stroke-width="1.1"/><circle cx="50" cy="50" r="9.5" fill="none" stroke="#FFD700" stroke-width=".8"/><text x="50" y="47" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="4.5" font-weight="900" fill="#0F1E37" letter-spacing=".5">MUNDIAL</text><text x="50" y="55" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="8" font-weight="900" fill="#CE1126">26</text></g><!-- Brillo + sombra global --><circle cx="50" cy="50" r="48" fill="url(#wc-sheen)" pointer-events="none"/><circle cx="50" cy="50" r="48" fill="url(#wc-shadow)" pointer-events="none"/><!-- Borde exterior --><circle cx="50" cy="50" r="48" fill="none" stroke="#0F1E37" stroke-width="1.8"/></svg></div><div class="wc-badge">⚽ Mundial 2026<span class="wc-count" id="wc-countdown">cargando...</span></div><div class="wc-flags">🇦🇷 🇲🇽 🇺🇸 🇨🇦</div></div><div class="login-logo"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQSolutions"/></div><div class="login-divider"></div><div class="login-title">Acceso al Dashboard</div><div class="login-sub">Ingresa tus credenciales para continuar</div><div class="login-error" id="login-error"></div><div class="form-group"><label class="form-label">Correo electr&oacute;nico</label><input type="email" id="login-email" class="form-input" placeholder="usuario@empresa.com"/></div><div class="form-group"><label class="form-label">Contrase&ntilde;a</label><div class="pw-wrap"><input type="password" id="login-pwd" class="form-input" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/><button class="pw-toggle" id="pw-eye" onclick="togglePwd()">&#128065;</button></div></div><button class="login-btn" id="login-btn" onclick="doLogin()">Ingresar</button><div class="login-footer"><span style="color:var(--tq);font-weight:700">EQ PLATFORM</span> &copy; 2026</div></div></div><div id="sidebar" class="collapsed" style="display:none">
   <!-- Header sidebar: logo + toggle -->
   <div id="sidebar-header">
     <img id="sidebar-logo" src="Manual%20de%20marca/Icono%20EQ%20Fondo%20Azul.png" alt="EQ"/>
@@ -5026,6 +4986,7 @@ function renderIngresoDatos(){
     {id:"eerr",        icon:"📥", label:"Estado de Resultados", cat:"FIN",  gate:"Contabilidad"},
     {id:"presupuesto", icon:"📊", label:"Presupuesto Anual",    cat:"FIN",  gate:"Finanzas"},
     {id:"corrida",     icon:"💸", label:"Corrida de Pagos",     cat:"FIN",  gate:"Finanzas"},
+    {id:"progpagos",   icon:"💰", label:"Programación de Pagos", cat:"FIN", gate:"Finanzas"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -5362,7 +5323,7 @@ function renderIngresoDatos(){
           '<td style="padding:8px;text-align:center;font-weight:700;color:'+cSem+'">'+pc.toFixed(1)+'%</td>' +
           '<td style="padding:8px;font-size:11px">'+esc(p.cargado_por||"—")+(fCarga?'<div style="font-size:9px;color:var(--grisMed)">'+fCarga+'</div>':'')+'</td>' +
           '<td style="padding:8px;text-align:right;white-space:nowrap">' +
-            '<button onclick="corridaVerDocs('+p.id_empresa+',\''+esc(p.fecha_corte||"")+'\')" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:6px">📄 Documentos</button>' +
+            '<button onclick="window._ppgPreselect={idEmpresa:'+p.id_empresa+',fechaCorte:\''+esc(p.fecha_corte||"")+'\'};setIngresoTab(\'progpagos\')" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:6px">⚙️ Gestionar</button>' +
             '<button onclick="corridaEliminar('+p.id+',\''+esc(p.fecha_corte||"")+'\','+p.id_empresa+')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button>' +
           '</td>' +
           '</tr>';
@@ -5370,6 +5331,20 @@ function renderIngresoDatos(){
       html += '</tbody></table>';
     }
     html += '</div>';
+
+  } else if(ingresoTab==="progpagos"){
+    // ── Tab Programación de Pagos — gestión completa de la corrida ──
+    // Pago individual/masivo, inactivación, búsqueda ágil, orden por columnas.
+    html += '<div class="ingreso-form">' +
+      '<div class="ingreso-form-title">💰 Programación de Pagos</div>' +
+      '<div class="ingreso-form-sub">Registra los pagos reales de la corrida — individual (✏️) o masivo (selecciona y paga saldo completo). ' +
+      'El estado de cada documento y el indicador TES-IND-001 se recalculan al instante. Todo cambio queda auditado con tu usuario.</div>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label class="form-label">Empresa</label><select id="pp-empresa" class="form-select" onchange="ppgCargar()">'+empOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Corrida (fecha de corte)</label><select id="pp-corrida" class="form-select" onchange="ppgCargar()"></select></div>' +
+      '</div></div>' +
+      '<div id="ppg-container" style="margin-top:14px"><div style="color:var(--grisMed);font-size:12px;padding:16px;text-align:center">⏳ Cargando...</div></div>';
+    setTimeout(()=>{ try{ ppgCargar(); }catch(e){ console.error("[ppg]", e); } }, 60);
 
   } else if(ingresoTab==="rrhh-rot"){
     // ── Tab Rotación · Listado de Empleados (modelo granular ACOSUX) ──
@@ -6521,25 +6496,26 @@ async function corridaEliminar(idAgregado, fechaCorte, idEmpresa){
 }
 window.corridaEliminar = corridaEliminar;
 
-// ── Gestión de documentos de una corrida: inactivar / reactivar ──────
-// Un documento inactivo NO participa del análisis (indicador, montos).
-// Se exige motivo y queda auditado (quién/cuándo). El agregado semanal
-// se recalcula automáticamente al cambiar el estado de un documento.
+// ── Documentos de una corrida — vista SOLO LECTURA ───────────────────
+// Se abre al hacer click en una semana desde el indicador de Finanzas.
+// La GESTIÓN (pagos, inactivación) vive en + Ingresar Datos → Programación de Pagos.
 window._corDocsCtx = null;
 
 async function corridaVerDocs(idEmpresa, fechaCorte){
+  const puedeGest = ["eq_admin","eq_lider","gestor_kpi"].includes(sesion?.rol);
   openModal('<div class="modal-box" style="max-width:940px;width:94vw">' +
     '<button class="modal-close" onclick="closeModal()">✕</button>' +
     '<div class="modal-title">📄 Documentos de la corrida · '+esc(fechaCorte.split("-").reverse().join("/"))+'</div>' +
-    '<div class="modal-sub">Inactiva los documentos que no deben participar del análisis (requiere motivo)</div>' +
+    '<div class="modal-sub">Vista de consulta · la gestión de pagos se realiza en Programación de Pagos</div>' +
     '<div id="cordocs-body" style="margin-top:12px"><div style="color:var(--grisMed);font-size:12px;padding:20px;text-align:center">⏳ Cargando documentos...</div></div>' +
-    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal();renderContent()">Cerrar</button></div>' +
+    '<div class="modal-footer">' +
+    (puedeGest ? '<button class="btn-save" onclick="closeModal();window._ppgPreselect={idEmpresa:'+idEmpresa+',fechaCorte:\''+esc(fechaCorte)+'\'};irAIngreso(\'progpagos\')">⚙️ Gestionar pagos</button>' : '') +
+    '<button class="btn-cancel" onclick="closeModal()">Cerrar</button></div>' +
     '</div>');
   try {
     const rows = await sbQueryPaginated("fin_pago_prov_corrida",
       "id_empresa=eq."+idEmpresa+"&fecha_corte=eq."+fechaCorte+"&order=saldo.desc");
-    window._corDocsCtx = { rows: Array.isArray(rows)?rows:[], idEmpresa, fechaCorte,
-                           filtroEstado:"", busca:"", motivoId:null, editId:null };
+    window._corDocsCtx = { rows: Array.isArray(rows)?rows:[], filtroEstado:"", busca:"" };
     _corDocsRender();
   } catch(e){
     console.error("[cordocs]", e);
@@ -6558,10 +6534,7 @@ function _corDocsRender(){
   const cum = cntE("Cumplido")+cntE("Atrasado"), tot = cum+cntE("Impago");
   const pct = tot>0 ? cum/tot*100 : 0;
   const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)"};
-
-  // Filtro + búsqueda
-  let lista = ctx.filtroEstado==="__inactivos"
-    ? inactivos
+  let lista = ctx.filtroEstado==="__inactivos" ? inactivos
     : (ctx.filtroEstado ? activos.filter(d=>d.estado===ctx.filtroEstado) : ctx.rows);
   if(ctx.busca){
     const q = ctx.busca.toLowerCase();
@@ -6570,8 +6543,6 @@ function _corDocsRender(){
                               (d.proveedor_ruc||"").includes(q));
   }
   const CAP = 300;
-  const mostradas = lista.slice(0, CAP);
-
   let h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
   [["","Todos",ctx.rows.length,"var(--azul)"],["Cumplido","Cumplido",cntE("Cumplido"),CE.Cumplido],
    ["Atrasado","Atrasado",cntE("Atrasado"),CE.Atrasado],["Impago","Impago",cntE("Impago"),CE.Impago],
@@ -6582,18 +6553,17 @@ function _corDocsRender(){
         'style="padding:5px 12px;font-size:11px;font-weight:700;border-radius:14px;cursor:pointer;border:1.5px solid '+ch[3]+';' +
         (sel?'background:'+ch[3]+';color:#fff':'background:transparent;color:'+ch[3])+'">'+ch[1]+' · '+ch[2]+'</button>';
     });
-  h += '<span style="margin-left:auto;font-size:12px;font-weight:800;color:'+(pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)")+';align-self:center">% activo: '+pct.toFixed(1)+'%</span>';
+  h += '<span style="margin-left:auto;font-size:12px;font-weight:800;color:'+(pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)")+';align-self:center">% cumplimiento: '+pct.toFixed(1)+'%</span>';
   h += '</div>';
   h += '<input type="text" placeholder="🔍 Buscar por proveedor, RUC o documento..." value="'+esc(ctx.busca)+'" ' +
     'oninput="window._corDocsCtx.busca=this.value;clearTimeout(window._corDocsT);window._corDocsT=setTimeout(_corDocsRender,250)" ' +
     'class="form-input" style="width:100%;margin-bottom:10px;font-size:12px"/>';
-
   h += '<div style="max-height:46vh;overflow-y:auto;border:1px solid var(--borde);border-radius:8px">' +
     '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
     '<thead><tr style="position:sticky;top:0;background:var(--azul);z-index:1">' +
-    ["Documento","Proveedor","Vence","Estado","Saldo","Pagar/Pagado","",""].map(x=>'<th style="color:#fff;padding:6px 8px;text-align:left;font-size:9px">'+x+'</th>').join("") +
+    ["Documento","Proveedor","Vence","Estado","Saldo","Pagar/Pagado"].map(x=>'<th style="color:#fff;padding:6px 8px;text-align:left;font-size:9px">'+x+'</th>').join("") +
     '</tr></thead><tbody>';
-  mostradas.forEach((d,i)=>{
+  lista.slice(0, CAP).forEach((d,i)=>{
     const inact = d.activo===false;
     const bg = inact ? "#F5F3FF" : (i%2===0?"var(--blanco)":"var(--grisLight)");
     const st = inact ? 'text-decoration:line-through;opacity:.6' : '';
@@ -6602,57 +6572,240 @@ function _corDocsRender(){
     const editado = vOrig!==null && Math.abs(vAp-vOrig)>0.005;
     h += '<tr>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
-      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
       '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
         (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
-      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>';
-    if(ctx.editId===d.id){
-      // Edición inline del valor a pagar/pagado (ajustes de Presidencia)
-      h += '<td colspan="3" style="padding:6px 8px;background:#E8F6F8;white-space:nowrap">$ ' +
-        '<input type="number" step="0.01" min="0" id="cordocs-valor" value="'+vAp.toFixed(2)+'" class="form-input" style="width:110px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
-        '<button onclick="_corDocsEditarValor('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:var(--tq);color:#fff;border-radius:4px;cursor:pointer">✓ Guardar</button> ' +
-        '<button onclick="window._corDocsCtx.editId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button> ' +
-        '<span style="font-size:9px;color:var(--grisMed)">saldo $'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+' · 0 = no se paga</span></td>';
-    } else {
-      h += '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:'+(vAp>0?'var(--tq)':'var(--grisMed)')+'">' +
-        '$'+vAp.toLocaleString("en-US",{minimumFractionDigits:2}) +
-        (editado?' <span title="Valor importado: $'+vOrig.toLocaleString("en-US",{minimumFractionDigits:2})+' · editado por '+esc(d.editado_por||"—")+'" style="cursor:help">✏️</span>':'') +
-        '</td>';
-      if(ctx.motivoId===d.id){
-        h += '<td colspan="2" style="padding:6px 8px;background:#FFF7E6;white-space:nowrap">' +
-          '<input type="text" id="cordocs-motivo" placeholder="Motivo de inactivación (obligatorio)" class="form-input" style="width:200px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
-          '<button onclick="_corDocsInactivar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:#8B5CF6;color:#fff;border-radius:4px;cursor:pointer">Confirmar</button> ' +
-          '<button onclick="window._corDocsCtx.motivoId=null;_corDocsRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button></td>';
-      } else {
-        h += '<td style="padding:6px 8px;background:'+bg+';text-align:right;white-space:nowrap" colspan="2">' +
-          (inact
-            ? '<button onclick="_corDocsReactivar('+d.id+')" style="padding:3px 8px;font-size:10px;border:1px solid var(--verde);color:var(--verde);background:transparent;border-radius:4px;cursor:pointer">↩ Reactivar</button>'
-            : '<button onclick="window._corDocsCtx.editId='+d.id+';window._corDocsCtx.motivoId=null;_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-valor\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:4px">✏️ Pagar</button>' +
-              '<button onclick="window._corDocsCtx.motivoId='+d.id+';window._corDocsCtx.editId=null;_corDocsRender();setTimeout(()=>document.getElementById(\'cordocs-motivo\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid #8B5CF6;color:#8B5CF6;background:transparent;border-radius:4px;cursor:pointer">🚫</button>') +
-          '</td>';
-      }
-    }
-    h += '</tr>';
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:'+(vAp>0?'var(--tq)':'var(--grisMed)')+'">$'+vAp.toLocaleString("en-US",{minimumFractionDigits:2}) +
+        (editado?' <span title="Valor importado: $'+vOrig.toLocaleString("en-US",{minimumFractionDigits:2})+' · registrado por '+esc(d.editado_por||"—")+'" style="cursor:help">✏️</span>':'') + '</td>' +
+      '</tr>';
   });
   h += '</tbody></table></div>';
-  if(lista.length>CAP) h += '<div style="font-size:10px;color:var(--grisMed);margin-top:6px">Mostrando '+CAP+' de '+lista.length.toLocaleString("en-US")+' — usa la búsqueda para encontrar documentos específicos</div>';
+  if(lista.length>CAP) h += '<div style="font-size:10px;color:var(--grisMed);margin-top:6px">Mostrando '+CAP+' de '+lista.length.toLocaleString("en-US")+' — usa la búsqueda para acotar</div>';
   body.innerHTML = h;
 }
 window._corDocsRender = _corDocsRender;
 
-async function _corDocsEditarValor(id){
-  // Edita el valor PAGAR/PAGADO de un documento (ajustes de Presidencia a última hora).
-  // Recalcula el ESTADO del documento: >0 = se paga (Cumplido/Atrasado según vencimiento);
-  // 0 = no se paga (Impago si está vencido, Vigente si no).
-  const ctx = window._corDocsCtx; if(!ctx) return;
-  const inp = document.getElementById("cordocs-valor");
-  const val = parseFloat(inp?.value);
+// ═══════════════════════════════════════════════════════════════
+// PROGRAMACIÓN DE PAGOS — gestión completa de la corrida
+// (+ Ingresar Datos → FIN → Programación de Pagos)
+// Pago individual (✏️), pago MASIVO por saldo completo, inactivar/
+// reactivar, búsqueda ágil y orden por columnas. Todo auditado.
+// ═══════════════════════════════════════════════════════════════
+window._ppgCtx = null;
+window._ppgSort = window._ppgSort || {col:"saldo", dir:"desc"};
+window._ppgFiltro = window._ppgFiltro || {estado:"", busca:""};
+
+async function ppgCargar(){
+  const cont = document.getElementById("ppg-container"); if(!cont) return;
+  const selEmp = document.getElementById("pp-empresa");
+  const selCor = document.getElementById("pp-corrida");
+  if(!selEmp || !selCor) return;
+  if(window._ppgPreselect){ selEmp.value = String(window._ppgPreselect.idEmpresa); }
+  const idEmp = parseInt(selEmp.value);
+  const corridas = (window._sbCache?.pagos_proveedores||[])
+    .filter(p=>p.id_empresa===idEmp && p.fecha_corte)
+    .sort((a,b)=>(b.fecha_corte||"").localeCompare(a.fecha_corte||""));
+  const prevSel = window._ppgPreselect?.fechaCorte || selCor.value;
+  selCor.innerHTML = corridas.map(p=>'<option value="'+p.fecha_corte+'">'+
+    p.fecha_corte.split("-").reverse().join("/")+' · '+(p.periodo_label||("Sem."+p.semana))+'</option>').join("");
+  if(prevSel && corridas.some(p=>p.fecha_corte===prevSel)) selCor.value = prevSel;
+  window._ppgPreselect = null;
+  if(!corridas.length){
+    cont.innerHTML = '<div class="card" style="text-align:center;color:var(--grisMed);padding:30px">Sin corridas cargadas para esta empresa · sube el reporte en la pestaña <b>Corrida de Pagos</b></div>';
+    window._ppgCtx = null; return;
+  }
+  const fecha = selCor.value;
+  cont.innerHTML = '<div style="color:var(--grisMed);font-size:12px;padding:20px;text-align:center">⏳ Cargando documentos de la corrida...</div>';
+  try {
+    const rows = await sbQueryPaginated("fin_pago_prov_corrida",
+      "id_empresa=eq."+idEmp+"&fecha_corte=eq."+fecha+"&order=saldo.desc");
+    window._ppgCtx = { rows: Array.isArray(rows)?rows:[], idEmp, fecha, sel:new Set(), editId:null, motivoId:null };
+    _ppgRender();
+  } catch(e){
+    console.error("[ppg]", e);
+    cont.innerHTML = '<div style="color:var(--rojo);font-size:12px;padding:16px">✕ '+esc(e.message)+'</div>';
+  }
+}
+window.ppgCargar = ppgCargar;
+
+function _ppgLista(){
+  // Lista filtrada según chips + búsqueda (compartida entre render y selección masiva)
+  const ctx = window._ppgCtx; if(!ctx) return [];
+  const f = window._ppgFiltro;
+  const activos = ctx.rows.filter(d=>d.activo!==false);
+  let lista = f.estado==="__inactivos" ? ctx.rows.filter(d=>d.activo===false)
+    : (f.estado ? activos.filter(d=>d.estado===f.estado) : ctx.rows);
+  if(f.busca){
+    const q = f.busca.toLowerCase();
+    lista = lista.filter(d => (d.proveedor_nombre||"").toLowerCase().includes(q) ||
+                              (d.documento||"").toLowerCase().includes(q) ||
+                              (d.proveedor_ruc||"").includes(q));
+  }
+  const s = window._ppgSort;
+  const val = d => {
+    switch(s.col){
+      case "documento": return d.documento||"";
+      case "proveedor": return d.proveedor_nombre||"";
+      case "vence":     return d.fecha_vencimiento||"";
+      case "dvenc":     return d.dias_vencidos||0;
+      case "estado":    return d.estado||"";
+      case "pagar":     return parseFloat(d.valor_aprobado||0);
+      default:          return parseFloat(d.saldo||0);
+    }
+  };
+  lista = lista.slice().sort((a,b)=>{
+    const va=val(a), vb=val(b);
+    const r = (typeof va==="number") ? va-vb : String(va).localeCompare(String(vb));
+    return s.dir==="asc" ? r : -r;
+  });
+  return lista;
+}
+
+function ppgSort(col){
+  const s = window._ppgSort;
+  if(s.col===col){ s.dir = s.dir==="asc" ? "desc" : "asc"; }
+  else { s.col = col; s.dir = (col==="proveedor"||col==="documento"||col==="estado") ? "asc" : "desc"; }
+  _ppgRender();
+}
+window.ppgSort = ppgSort;
+
+function _ppgSelBar(){
+  const ctx = window._ppgCtx; if(!ctx) return "";
+  const n = ctx.sel.size;
+  if(!n) return '<span style="font-size:11px;color:var(--grisMed)">Selecciona documentos para pagar en lote</span>';
+  const items = ctx.rows.filter(d=>ctx.sel.has(d.id) && d.activo!==false);
+  const tot = items.reduce((s,d)=>s+parseFloat(d.saldo||0),0);
+  return '<span style="font-size:12px;font-weight:800;color:var(--azul)">'+n+' seleccionado'+(n!==1?'s':'')+' · $'+tot.toLocaleString("en-US",{minimumFractionDigits:2})+'</span>' +
+    '<button onclick="_ppgPagarMasivo()" style="padding:6px 14px;font-size:11px;font-weight:700;border:none;background:var(--verde);color:#fff;border-radius:6px;cursor:pointer">💵 Pagar saldo completo</button>' +
+    '<button onclick="window._ppgCtx.sel.clear();_ppgRender()" style="padding:6px 10px;font-size:11px;border:1px solid var(--borde);background:transparent;border-radius:6px;cursor:pointer">✕ Limpiar</button>';
+}
+
+function _ppgToggleSel(id, on){
+  const ctx = window._ppgCtx; if(!ctx) return;
+  if(on) ctx.sel.add(id); else ctx.sel.delete(id);
+  const bar = document.getElementById("ppg-selbar");
+  if(bar) bar.innerHTML = _ppgSelBar();
+}
+window._ppgToggleSel = _ppgToggleSel;
+
+function _ppgToggleAll(on){
+  const ctx = window._ppgCtx; if(!ctx) return;
+  const lista = _ppgLista().filter(d=>d.activo!==false);
+  if(on) lista.forEach(d=>ctx.sel.add(d.id));
+  else   lista.forEach(d=>ctx.sel.delete(d.id));
+  _ppgRender();
+}
+window._ppgToggleAll = _ppgToggleAll;
+
+function _ppgRender(){
+  const ctx = window._ppgCtx; if(!ctx) return;
+  const cont = document.getElementById("ppg-container"); if(!cont) return;
+  const f = window._ppgFiltro, s = window._ppgSort;
+  const activos   = ctx.rows.filter(d=>d.activo!==false);
+  const inactivos = ctx.rows.filter(d=>d.activo===false);
+  const cntE = e => activos.filter(d=>d.estado===e).length;
+  const monE = e => activos.filter(d=>d.estado===e).reduce((x,d)=>x+parseFloat(d.saldo||0),0);
+  const cum = cntE("Cumplido")+cntE("Atrasado"), tot = cum+cntE("Impago");
+  const pct = tot>0 ? cum/tot*100 : 0;
+  const cPct = pct>=95?"var(--verde)":pct>=80?"var(--amarillo)":"var(--rojo)";
+  const CE = {Cumplido:"var(--verde)", Atrasado:"#D4A012", Impago:"var(--rojo)", Vigente:"var(--grisMed)"};
+  const lista = _ppgLista();
+  const CAP = 400;
+  const activasFiltradas = lista.filter(d=>d.activo!==false);
+  const allSel = activasFiltradas.length>0 && activasFiltradas.every(d=>ctx.sel.has(d.id));
+  const totalPagado = activos.reduce((x,d)=>x+parseFloat(d.valor_aprobado||0),0);
+
+  let h = '<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">';
+  [["","Todos",ctx.rows.length,"var(--azul)"],["Cumplido","Cumplido",cntE("Cumplido"),CE.Cumplido],
+   ["Atrasado","Atrasado",cntE("Atrasado"),CE.Atrasado],["Impago","Impago",cntE("Impago"),CE.Impago],
+   ["Vigente","Vigente",cntE("Vigente"),CE.Vigente],["__inactivos","🚫 Inactivos",inactivos.length,"#8B5CF6"]]
+    .forEach(ch=>{
+      const sel = f.estado===ch[0];
+      h += '<button onclick="window._ppgFiltro.estado=\''+ch[0]+'\';_ppgRender()" ' +
+        'style="padding:5px 12px;font-size:11px;font-weight:700;border-radius:14px;cursor:pointer;border:1.5px solid '+ch[3]+';' +
+        (sel?'background:'+ch[3]+';color:#fff':'background:transparent;color:'+ch[3])+'">'+ch[1]+' · '+ch[2]+'</button>';
+    });
+  h += '<div style="margin-left:auto;text-align:right">' +
+    '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;color:'+cPct+'">'+pct.toFixed(1)+'% <span style="font-size:10px;color:var(--grisMed);font-weight:600">cumplimiento</span></div>' +
+    '<div style="font-size:10px;color:var(--grisMed)">$'+Math.round(totalPagado).toLocaleString("en-US")+' registrado como pagado · $'+Math.round(monE("Impago")).toLocaleString("en-US")+' impago</div>' +
+    '</div></div></div>';
+
+  h += '<div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">' +
+    '<input type="text" placeholder="🔍 Buscar proveedor, RUC o documento..." value="'+esc(f.busca)+'" ' +
+    'oninput="window._ppgFiltro.busca=this.value;clearTimeout(window._ppgT);window._ppgT=setTimeout(_ppgRender,250)" ' +
+    'class="form-input" style="flex:1;min-width:240px;font-size:12px"/>' +
+    '<div id="ppg-selbar" style="display:flex;gap:8px;align-items:center">'+_ppgSelBar()+'</div>' +
+    '</div>';
+
+  const arrow = c => s.col===c ? (s.dir==="asc"?" ▲":" ▼") : "";
+  const TH = (c,lbl,align) => '<th onclick="ppgSort(\''+c+'\')" style="color:#fff;padding:7px 8px;text-align:'+(align||"left")+';font-size:9px;cursor:pointer;user-select:none;white-space:nowrap" title="Ordenar">'+lbl+arrow(c)+'</th>';
+  h += '<div style="max-height:56vh;overflow-y:auto;border:1px solid var(--borde);border-radius:8px">' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+    '<thead><tr style="position:sticky;top:0;background:var(--azul);z-index:1">' +
+    '<th style="padding:7px 8px"><input type="checkbox" '+(allSel?'checked':'')+' onchange="_ppgToggleAll(this.checked)" title="Seleccionar todo lo filtrado" style="cursor:pointer"/></th>' +
+    TH("documento","Documento") + TH("proveedor","Proveedor") + TH("vence","Vence") +
+    TH("dvenc","D.Venc","center") + TH("estado","Estado") + TH("saldo","Saldo","right") +
+    TH("pagar","Pagar/Pagado","right") +
+    '<th style="padding:7px 8px"></th>' +
+    '</tr></thead><tbody>';
+
+  lista.slice(0, CAP).forEach((d,i)=>{
+    const inact = d.activo===false;
+    const bg = inact ? "#F5F3FF" : (i%2===0?"var(--blanco)":"var(--grisLight)");
+    const st = inact ? 'text-decoration:line-through;opacity:.6' : '';
+    const vAp = parseFloat(d.valor_aprobado||0);
+    const vOrig = d.valor_aprobado_original!=null ? parseFloat(d.valor_aprobado_original) : null;
+    const editado = vOrig!==null && Math.abs(vAp-vOrig)>0.005;
+    h += '<tr>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:center">' +
+        (inact?'':'<input type="checkbox" '+(ctx.sel.has(d.id)?'checked':'')+' onchange="_ppgToggleSel('+d.id+',this.checked)" style="cursor:pointer"/>') + '</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';font-variant-numeric:tabular-nums;white-space:nowrap">'+esc(d.documento||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(d.proveedor_nombre||"")+' · RUC '+esc(d.proveedor_ruc||"—")+'">'+esc(d.proveedor_nombre||"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';white-space:nowrap">'+esc((d.fecha_vencimiento||"").split("-").reverse().join("/"))+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:center;font-weight:600;color:'+((d.dias_vencidos||0)>0?'var(--rojo)':'var(--verde)')+'">'+(d.dias_vencidos!=null?d.dias_vencidos:"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+'"><span style="font-weight:700;color:'+(CE[d.estado]||"#999")+';'+st+'">'+esc(d.estado)+'</span>' +
+        (inact&&d.inactivo_motivo?'<div style="font-size:9px;color:#8B5CF6;margin-top:2px">🚫 '+esc(d.inactivo_motivo)+' · '+esc(d.inactivado_por||"")+'</div>':'') + '</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:600">$'+parseFloat(d.saldo||0).toLocaleString("en-US",{minimumFractionDigits:2})+'</td>';
+    if(ctx.editId===d.id){
+      h += '<td colspan="2" style="padding:6px 8px;background:#E8F6F8;white-space:nowrap">$ ' +
+        '<input type="number" step="0.01" min="0" id="ppg-valor" value="'+vAp.toFixed(2)+'" class="form-input" style="width:110px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+        '<button onclick="_ppgPagar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:var(--tq);color:#fff;border-radius:4px;cursor:pointer">✓ Guardar</button> ' +
+        '<button onclick="window._ppgCtx.editId=null;_ppgRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button> ' +
+        '<span style="font-size:9px;color:var(--grisMed)">0 = no se paga</span></td>';
+    } else if(ctx.motivoId===d.id){
+      h += '<td colspan="2" style="padding:6px 8px;background:#FFF7E6;white-space:nowrap">' +
+        '<input type="text" id="ppg-motivo" placeholder="Motivo de inactivación (obligatorio)" class="form-input" style="width:190px;font-size:11px;padding:4px 8px;display:inline-block"/> ' +
+        '<button onclick="_ppgInactivar('+d.id+')" style="padding:4px 8px;font-size:10px;border:none;background:#8B5CF6;color:#fff;border-radius:4px;cursor:pointer">Confirmar</button> ' +
+        '<button onclick="window._ppgCtx.motivoId=null;_ppgRender()" style="padding:4px 8px;font-size:10px;border:1px solid var(--borde);background:transparent;border-radius:4px;cursor:pointer">✕</button></td>';
+    } else {
+      h += '<td style="padding:6px 8px;background:'+bg+';'+st+';text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:'+(vAp>0?'var(--tq)':'var(--grisMed)')+'">' +
+        '$'+vAp.toLocaleString("en-US",{minimumFractionDigits:2}) +
+        (editado?' <span title="Valor importado: $'+vOrig.toLocaleString("en-US",{minimumFractionDigits:2})+' · registrado por '+esc(d.editado_por||"—")+'" style="cursor:help">✏️</span>':'') + '</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;white-space:nowrap">' +
+        (inact
+          ? '<button onclick="_ppgReactivar('+d.id+')" style="padding:3px 8px;font-size:10px;border:1px solid var(--verde);color:var(--verde);background:transparent;border-radius:4px;cursor:pointer">↩ Reactivar</button>'
+          : '<button onclick="window._ppgCtx.editId='+d.id+';window._ppgCtx.motivoId=null;_ppgRender();setTimeout(()=>document.getElementById(\'ppg-valor\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:4px;cursor:pointer;margin-right:4px">✏️ Pagar</button>' +
+            '<button onclick="window._ppgCtx.motivoId='+d.id+';window._ppgCtx.editId=null;_ppgRender();setTimeout(()=>document.getElementById(\'ppg-motivo\')?.focus(),50)" style="padding:3px 8px;font-size:10px;border:1px solid #8B5CF6;color:#8B5CF6;background:transparent;border-radius:4px;cursor:pointer" title="Inactivar — no participa del análisis">🚫</button>') +
+        '</td>';
+    }
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>';
+  if(lista.length>CAP) h += '<div style="font-size:10px;color:var(--grisMed);margin-top:6px">Mostrando '+CAP+' de '+lista.length.toLocaleString("en-US")+' filtrados — la selección masiva y los totales SÍ consideran todo lo filtrado</div>';
+  cont.innerHTML = h;
+}
+window._ppgRender = _ppgRender;
+
+async function _ppgPagar(id){
+  // Pago individual: registra el valor pagado y recalcula el estado del documento.
+  const ctx = window._ppgCtx; if(!ctx) return;
+  const val = parseFloat(document.getElementById("ppg-valor")?.value);
   if(!isFinite(val) || val < 0){ showError("Ingresa un valor válido (0 o mayor)."); return; }
-  const row = ctx.rows.find(d=>d.id===id);
-  if(!row) return;
+  const row = ctx.rows.find(d=>d.id===id); if(!row) return;
   const saldo = parseFloat(row.saldo||0);
-  if(val > saldo*1.01){ showError("El valor a pagar ($"+val.toLocaleString("en-US")+") no puede superar el saldo del documento ($"+saldo.toLocaleString("en-US")+")."); return; }
+  if(val > saldo*1.01){ showError("El valor ($"+val.toLocaleString("en-US")+") no puede superar el saldo del documento ($"+saldo.toLocaleString("en-US")+")."); return; }
   try {
     const venc = (row.dias_vencidos||0) > 0;
     const aprob = val > 0;
@@ -6666,16 +6819,73 @@ async function _corDocsEditarValor(id){
     await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
     Object.assign(row, cambios);
     ctx.editId = null;
-    await _corridaRecalcAgregado();
-    _corDocsRender();
-    showSuccess("✓ Valor actualizado a $"+cambios.valor_aprobado.toLocaleString("en-US",{minimumFractionDigits:2})+" · estado: "+cambios.estado+" · indicador recalculado");
-  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+    await _ppgRecalcAgregado();
+    _ppgRender();
+    showSuccess("✓ Pago registrado: $"+cambios.valor_aprobado.toLocaleString("en-US",{minimumFractionDigits:2})+" · "+cambios.estado);
+  } catch(e){ console.error("[ppg]", e); showError("Error: "+e.message); }
 }
-window._corDocsEditarValor = _corDocsEditarValor;
+window._ppgPagar = _ppgPagar;
 
-async function _corDocsInactivar(id){
-  const ctx = window._corDocsCtx; if(!ctx) return;
-  const motivo = (document.getElementById("cordocs-motivo")?.value||"").trim();
+async function _ppgPagarMasivo(){
+  // Pago MASIVO: aplica "pagar saldo completo" a todos los documentos seleccionados.
+  const ctx = window._ppgCtx; if(!ctx || !ctx.sel.size) return;
+  const items = ctx.rows.filter(d=>ctx.sel.has(d.id) && d.activo!==false && parseFloat(d.saldo||0)>0);
+  if(!items.length){ showError("No hay documentos activos con saldo en la selección."); return; }
+  const tot = items.reduce((s,d)=>s+parseFloat(d.saldo||0),0);
+  const ok = await new Promise(resolve=>{
+    openModal('<div class="modal-box">' +
+      '<button class="modal-close" onclick="window._ppgMasCancel()">✕</button>' +
+      '<div class="modal-title">💵 Pago masivo — saldo completo</div>' +
+      '<div class="modal-sub" style="margin-bottom:14px">Se registrará el pago del saldo completo de cada documento seleccionado</div>' +
+      '<div style="background:#F0FBF4;border:1px solid #A7E3BD;border-radius:8px;padding:14px;margin-bottom:18px">' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span style="color:var(--grisMed);font-weight:600">Documentos</span><span style="color:var(--azul);font-weight:800">'+items.length.toLocaleString("en-US")+'</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--grisMed);font-weight:600">Total a registrar</span><span style="color:var(--verde);font-weight:800">$'+tot.toLocaleString("en-US",{minimumFractionDigits:2})+'</span></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button class="btn-cancel" onclick="window._ppgMasCancel()">Cancelar</button>' +
+        '<button class="btn-save" style="background:var(--verde)" onclick="window._ppgMasConfirm()">💵 Registrar pagos</button>' +
+      '</div></div>');
+    window._ppgMasCancel  = () => { closeModal(); resolve(false); };
+    window._ppgMasConfirm = () => { resolve(true); };
+  });
+  if(!ok) return;
+  openModal('<div class="modal-box" style="text-align:center">' +
+    '<div class="modal-title">💵 Registrando pagos...</div>' +
+    '<div id="ppg-prog" style="font-size:28px;font-weight:800;font-family:Raleway,sans-serif;color:var(--tq);margin:16px 0">0 / '+items.length+'</div>' +
+    '<div style="font-size:11px;color:var(--grisMed)">No cierres esta ventana</div></div>');
+  const queue = items.slice();
+  let done = 0, errores = 0;
+  const worker = async () => {
+    while(queue.length){
+      const d = queue.shift();
+      const venc = (d.dias_vencidos||0) > 0;
+      const cambios = {
+        valor_aprobado: Math.round(parseFloat(d.saldo||0)*100)/100,
+        estado: venc ? "Atrasado" : "Cumplido",
+        dias_desviacion: venc ? Math.round(d.dias_vencidos||0) : null,
+        editado_por: sesion?.email||"sistema",
+        editado_en: new Date().toISOString()
+      };
+      try { await sbUpdate("fin_pago_prov_corrida", cambios, "id", d.id); Object.assign(d, cambios); }
+      catch(e){ errores++; console.error("[ppg masivo]", d.id, e); }
+      done++;
+      const el = document.getElementById("ppg-prog");
+      if(el) el.textContent = done+" / "+items.length;
+    }
+  };
+  await Promise.all(Array.from({length:8}, worker));
+  await _ppgRecalcAgregado();
+  ctx.sel.clear();
+  closeModal();
+  _ppgRender();
+  if(errores) showError(errores+" documentos fallaron al registrar — revisa la consola y reintenta");
+  else showSuccess("✓ "+items.length.toLocaleString("en-US")+" pagos registrados por el saldo completo · indicador recalculado");
+}
+window._ppgPagarMasivo = _ppgPagarMasivo;
+
+async function _ppgInactivar(id){
+  const ctx = window._ppgCtx; if(!ctx) return;
+  const motivo = (document.getElementById("ppg-motivo")?.value||"").trim();
   if(!motivo){ showError("El motivo de inactivación es obligatorio."); return; }
   try {
     const cambios = { activo:false, inactivo_motivo:motivo,
@@ -6684,32 +6894,32 @@ async function _corDocsInactivar(id){
     await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
     const row = ctx.rows.find(d=>d.id===id);
     if(row) Object.assign(row, cambios);
-    ctx.motivoId = null;
-    await _corridaRecalcAgregado();
-    _corDocsRender();
-    showSuccess("✓ Documento inactivado — el indicador se recalculó");
-  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+    ctx.motivoId = null; ctx.sel.delete(id);
+    await _ppgRecalcAgregado();
+    _ppgRender();
+    showSuccess("✓ Documento inactivado — no participa del análisis");
+  } catch(e){ console.error("[ppg]", e); showError("Error: "+e.message); }
 }
-window._corDocsInactivar = _corDocsInactivar;
+window._ppgInactivar = _ppgInactivar;
 
-async function _corDocsReactivar(id){
-  const ctx = window._corDocsCtx; if(!ctx) return;
+async function _ppgReactivar(id){
+  const ctx = window._ppgCtx; if(!ctx) return;
   try {
     const cambios = { activo:true, inactivo_motivo:null, inactivado_por:null, inactivado_en:null };
     await sbUpdate("fin_pago_prov_corrida", cambios, "id", id);
     const row = ctx.rows.find(d=>d.id===id);
     if(row) Object.assign(row, cambios);
-    await _corridaRecalcAgregado();
-    _corDocsRender();
-    showSuccess("✓ Documento reactivado — el indicador se recalculó");
-  } catch(e){ console.error("[cordocs]", e); showError("Error: "+e.message); }
+    await _ppgRecalcAgregado();
+    _ppgRender();
+    showSuccess("✓ Documento reactivado");
+  } catch(e){ console.error("[ppg]", e); showError("Error: "+e.message); }
 }
-window._corDocsReactivar = _corDocsReactivar;
+window._ppgReactivar = _ppgReactivar;
 
-async function _corridaRecalcAgregado(){
-  // Recalcula la fila agregada de pagos_proveedores para el corte del modal,
-  // considerando SOLO documentos activos.
-  const ctx = window._corDocsCtx; if(!ctx) return;
+async function _ppgRecalcAgregado(){
+  // Recalcula la fila agregada (pagos_proveedores) de la corrida en gestión,
+  // considerando SOLO documentos activos. Actualiza BD y caché.
+  const ctx = window._ppgCtx; if(!ctx) return;
   const act = ctx.rows.filter(d=>d.activo!==false);
   const cnt = e => act.filter(d=>d.estado===e).length;
   const monto = e => act.filter(d=>d.estado===e).reduce((s,d)=>s+parseFloat(d.saldo||0),0);
@@ -6726,10 +6936,10 @@ async function _corridaRecalcAgregado(){
     monto_vigente: Math.round(monto("Vigente")*100)/100
   };
   const agg = (window._sbCache?.pagos_proveedores||[])
-    .find(p => p.id_empresa===ctx.idEmpresa && p.fecha_corte===ctx.fechaCorte);
+    .find(p => p.id_empresa===ctx.idEmp && p.fecha_corte===ctx.fecha);
   if(agg){
     await sbUpdate("pagos_proveedores", fila, "id", agg.id);
-    Object.assign(agg, fila); // reflejar en caché sin recargar
+    Object.assign(agg, fila);
   }
 }
 
