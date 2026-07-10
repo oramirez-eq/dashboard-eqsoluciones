@@ -4762,12 +4762,32 @@ function renderFinanzas(){
   const pLabel=mesF>0?MESES_N[mesF]+" "+anioF:"Año "+anioF;
   const cMap={"POR VENCER":"#16A97A","1-30":"#D4A012","30-60":"#F07000","60-90":"#E03355",">90":"#8B0000"};
 
+  // Fuente dinámica por empresa: Contifico si tiene API activa, si no Acosux (Lukmar)
+  const _tieneContifico = (window._sbCache?.empresa_api_config||[])
+    .some(a=>a.id_empresa===_empObjF?.id && a.activo && a.tipo_erp==="contifico");
+  const _fuenteLbl = _tieneContifico ? "ERP CONTIFICO" : "ERP ACOSUX";
+
   let html = buildPeriodoUI();
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">' +
-    '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">💰 Finanzas — Tesorería</div>' +
+    '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">💰 Finanzas — Tesorería · '+esc(_empObjF?.nombre||emp)+'</div>' +
     '<div style="font-size:11px;color:var(--grisMed)">Cumplimiento de Pago a Proveedores · '+pLabel+'</div></div>' +
-    '<div style="font-size:10px;color:var(--grisMed);text-align:right">Fuente<br><span style="color:var(--tq);font-weight:700">ERP ACOSUX</span></div>' +
+    '<div style="font-size:10px;color:var(--grisMed);text-align:right">Fuente<br><span style="color:var(--tq);font-weight:700">'+_fuenteLbl+'</span></div>' +
     '</div>';
+
+  // Estado vacío explícito: sin corrida para ESTA empresa (evita confundir con otra)
+  if(!pagos.length){
+    html += '<div class="card" style="text-align:center;padding:36px">' +
+      '<div style="font-size:34px">💸</div>' +
+      '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;margin-top:10px">Sin corrida de pagos para '+esc(_empObjF?.nombre||emp)+'</div>' +
+      '<div style="font-size:12px;color:var(--grisMed);margin-top:6px;max-width:520px;margin-left:auto;margin-right:auto">' +
+      (_tieneContifico
+        ? 'Traé las facturas CxP pendientes con el botón <b>💳 Traer de Contifico</b>, o esperá el sync diario.'
+        : 'Cargá el reporte <b>Aprobar Pagos</b> de Acosux en <b>+ Ingresar Datos → Corrida de Pagos</b>.') +
+      '</div>' +
+      '<button onclick="irAIngreso(\'corrida\')" style="margin-top:14px;padding:8px 16px;font-size:12px;font-weight:700;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer">📥 Ir a Corrida de Pagos</button>' +
+      '</div>';
+    return html;
+  }
 
   // KPI + métricas
   html += '<div style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:16px">';
@@ -6547,12 +6567,14 @@ async function corridaTraerContifico(){
     });
     if(!desired.size) throw new Error("Contifico no devolvió facturas pendientes para el rango.");
 
-    // Filas vivas existentes (para preservar la programación)
+    // Filas vivas existentes (para preservar la programación).
+    // Se traen saldo/dias/estado para comparar y ESCRIBIR SOLO LO QUE CAMBIÓ
+    // (en régimen normal casi nada cambia día a día → pocas escrituras).
     const existentes = await sbQueryPaginated("fin_pago_prov_corrida",
-      "id_empresa=eq."+idEmpresa+"&fuente=eq.contifico&select=id,contifico_doc_id,valor_aprobado,saldado");
+      "id_empresa=eq."+idEmpresa+"&fuente=eq.contifico&select=id,contifico_doc_id,valor_aprobado,saldado,saldo,dias_vencidos,estado");
     const exById = new Map((existentes||[]).map(r=>[String(r.contifico_doc_id), r]));
     const nowIso = new Date().toISOString();
-    const nuevos = []; let nInsert=0, nUpdate=0, nSaldado=0;
+    const nuevos = []; let nInsert=0, nUpdate=0, nSaldado=0, nSinCambio=0;
     for(const [cid, dd] of desired){
       const ex = exById.get(cid);
       const dv = dd.dias_vencidos;
@@ -6563,12 +6585,18 @@ async function corridaTraerContifico(){
           fuente:"contifico", actualizado_por: sesion?.email||"sistema" });
         nInsert++;
       } else {
+        const nuevoEstado = estadoDe(parseFloat(ex.valor_aprobado||0), dv);
+        // Saltar si nada relevante cambió (saldo, días vencidos, estado) y no está saldado
+        const sinCambio = Math.abs(parseFloat(ex.saldo||0) - dd.saldo) < 0.005
+          && (ex.dias_vencidos||0) === dv
+          && ex.estado === nuevoEstado
+          && ex.saldado !== true;
+        if(sinCambio){ nSinCambio++; continue; }
         await sbUpdate("fin_pago_prov_corrida", {
           saldo:dd.saldo, dias_vencidos:dv, fecha_vencimiento:dd.fecha_vencimiento,
           fecha_emision:dd.fecha_emision, proveedor_ruc:dd.proveedor_ruc,
           proveedor_nombre:dd.proveedor_nombre, documento:dd.documento, detalle:dd.detalle,
-          estado:estadoDe(parseFloat(ex.valor_aprobado||0), dv),
-          saldado:false, saldado_en:null, sincronizado_en:nowIso
+          estado:nuevoEstado, saldado:false, saldado_en:null, sincronizado_en:nowIso
         }, "id", ex.id);
         nUpdate++;
       }
@@ -6610,7 +6638,7 @@ async function corridaTraerContifico(){
           '<div style="font-size:10px;color:var(--grisMed);font-weight:700;text-transform:uppercase">'+m[0]+'</div>' +
           '<div style="font-size:20px;font-weight:800;font-family:Raleway,sans-serif;color:'+m[2]+'">'+m[1].toLocaleString("en-US")+'</div></div>').join("") +
       '</div>' +
-      '<div style="font-size:11px;color:var(--grisMed)">Impago $'+Math.round(mto("Impago")).toLocaleString("en-US")+' · Vigente $'+Math.round(mto("Vigente")).toLocaleString("en-US")+' · '+omit+' descartadas. La programación previa de Tesorería se conservó.</div>' +
+      '<div style="font-size:11px;color:var(--grisMed)">Impago $'+Math.round(mto("Impago")).toLocaleString("en-US")+' · Vigente $'+Math.round(mto("Vigente")).toLocaleString("en-US")+' · '+nSinCambio+' sin cambios · '+omit+' descartadas. La programación previa de Tesorería se conservó.</div>' +
       '<div style="margin-top:10px;padding:10px;background:#F0FBFC;border:1px solid var(--tq);border-radius:8px;font-size:11px;color:#0a5a7a">💡 Gestioná los pagos factura por factura en <button onclick="window._ppgPreselect={idEmpresa:'+idEmpresa+',fechaCorte:\''+esc(fechaCorte)+'\'};setIngresoTab(\'progpagos\')" style="border:none;background:var(--tq);color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:700">💰 Programación de Pagos</button></div>';
     showSuccess("✓ Corrida viva actualizada: "+nInsert+" nuevas · "+nUpdate+" actualizadas · "+nSaldado+" saldadas");
   } catch(e){
