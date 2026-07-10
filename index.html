@@ -4748,7 +4748,13 @@ function renderFinanzas(){
   let wherePP="id_empresa=(SELECT id FROM empresas WHERE codigo=?) AND anio=?";
   let paramsPP=[emp,anioF];
   if(mesF>0){wherePP+=" AND mes=?"; paramsPP.push(mesF);}
-  const pagos=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento,semaforo,fecha_corte,cargado_por FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
+  const _pagosAll=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento,semaforo,fecha_corte,cargado_por FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
+  // El indicador muestra las semanas CERRADAS (histórico · fecha_corte NULL). La
+  // corrida EN CURSO (fecha_corte/es_viva) se gestiona en Programación de Pagos y
+  // NO distorsiona la serie. Si la empresa solo tiene corrida (ej. Superhealthy,
+  // sin histórico cargado), se usa esa como vista del indicador.
+  const _pagosHist = _pagosAll.filter(r=>!r.fecha_corte);
+  const pagos = _pagosHist.length ? _pagosHist : _pagosAll;
   const totalTxn   =pagos.reduce((s,r)=>s+(r.total||0),0);
   const totalCumpl =pagos.reduce((s,r)=>s+(r.cumplieron||0),0);
   const totalNoCumpl=pagos.reduce((s,r)=>s+(r.no_cumplieron||0),0);
@@ -4837,7 +4843,12 @@ function renderFinanzas(){
   // Mes seleccionado + 2 anteriores (con cruce de año), sumando las corridas
   // semanales de cada mes. "PB Cumplir" = meta de volumen configurable.
   (function(){
-    const todasPP = (window._sbCache?.pagos_proveedores||[]).filter(p=>p.id_empresa===_empObjF?.id);
+    // Comparativo mensual: solo semanas cerradas (histórico); la corrida en curso
+    // no entra (mismo criterio que el resto del indicador). Fallback a corridas si
+    // la empresa no tiene histórico (Superhealthy).
+    const _todasEmp = (window._sbCache?.pagos_proveedores||[]).filter(p=>p.id_empresa===_empObjF?.id);
+    const _todasHist = _todasEmp.filter(p=>!p.fecha_corte);
+    const todasPP = _todasHist.length ? _todasHist : _todasEmp;
     if(!todasPP.length) return;
     const mesSel = mesF>0 ? mesF : (anioF===(new Date()).getFullYear() ? (new Date()).getMonth()+1 : 12);
     const meses3 = [-2,-1,0].map(d=>{
@@ -4969,7 +4980,10 @@ function initChartsFinanzas(){
   let wherePP="id_empresa=(SELECT id FROM empresas WHERE codigo=?) AND anio=?";
   let paramsPP=[emp,anioF];
   if(mesF>0){wherePP+=" AND mes=?"; paramsPP.push(mesF);}
-  const pagos=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
+  const _pagosAllC=queryAll("SELECT periodo_label,cumplieron,no_cumplieron,total,pct_cumplimiento,fecha_corte FROM pagos_proveedores WHERE "+wherePP+" ORDER BY semana ASC",paramsPP);
+  // Mismo criterio que renderFinanzas: chart de semanas cerradas (sin la corrida en curso)
+  const _pagosHistC=_pagosAllC.filter(r=>!r.fecha_corte);
+  const pagos=_pagosHistC.length?_pagosHistC:_pagosAllC;
 
   const ctxBar=document.getElementById("bar-pagos");
   if(ctxBar&&pagos.length){
