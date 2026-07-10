@@ -5297,22 +5297,31 @@ function renderIngresoDatos(){
       .slice(0,10);
     const empMapC = {};
     (window._sbCache?.empresas||[]).forEach(e=>{ empMapC[e.id]=e.nombre; });
+    // Empresas con API Contifico activa → pueden traer los documentos automáticamente
+    const _apiCfgCorr = (window._sbCache?.empresa_api_config||[]).filter(a=>a.activo && a.tipo_erp==="contifico");
+    const _empConContifico = new Set(_apiCfgCorr.map(a=>a.id_empresa));
     html += '<div class="ingreso-form">' +
       '<div class="ingreso-form-title">💸 Corrida de Pagos — Cumplimiento Pago Proveedores</div>' +
-      '<div class="ingreso-form-sub">Sube el reporte <b>Aprobar Pagos</b> de Acosux exportado al momento de la corrida ' +
-      '(con la aprobación real marcada). El sistema clasifica cada documento — Cumplido, Atrasado, Impago o Vigente — ' +
-      'y alimenta el indicador TES-IND-001 semanal y mensual.</div>' +
+      '<div class="ingreso-form-sub">Origen de los documentos por pagar según la empresa: ' +
+      '<b>Acosux</b> (Lukmar) → sube el reporte <b>Aprobar Pagos</b>; ' +
+      '<b>Contifico</b> (Superhealthy, Lukfruit) → botón <b>Traer de Contifico</b> (trae las facturas CxP pendientes automáticamente). ' +
+      'El sistema clasifica cada documento y alimenta el indicador TES-IND-001.</div>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label class="form-label">Empresa</label><select id="ic-empresa" class="form-select">'+empOpts+'</select></div>' +
       '<div class="form-group"><label class="form-label">Fecha de la corrida (corte)</label>' +
       '<input type="date" id="ic-fecha" class="form-input" value="'+hoy+'"/></div>' +
-      '<div class="form-group form-full"><label class="form-label">Archivo Excel (reporte Aprobar Pagos)</label>' +
+      '<div class="form-group form-full"><label class="form-label">Reporte Aprobar Pagos (Acosux · .xls/.xlsx)</label>' +
       '<input type="file" id="ic-archivo" accept=".xls,.xlsx" class="form-input" onchange="corridaLeerExcel()" style="padding:8px"/></div>' +
       '</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin:6px 0 2px">' +
+        '<div style="flex:1;height:1px;background:var(--borde)"></div>' +
+        '<span style="font-size:10px;color:var(--grisMed);font-weight:700">O BIEN</span>' +
+        '<div style="flex:1;height:1px;background:var(--borde)"></div></div>' +
+      '<button id="ic-btn-contifico" onclick="corridaTraerContifico()" style="width:100%;padding:11px;font-size:13px;font-weight:700;border:1.5px solid var(--tq);color:var(--tq);background:#F0FBFC;border-radius:8px;cursor:pointer">💳 Traer de Contifico — facturas CxP pendientes de la empresa seleccionada</button>' +
       '<div id="ic-preview" style="display:none;margin-top:14px;padding:14px;background:#F8FAFC;border:1px solid var(--borde);border-radius:8px"></div>' +
       '<div style="display:flex;gap:12px;align-items:center;margin-top:12px">' +
       '<button class="submit-btn" id="ic-btn-guardar" onclick="corridaGuardar()" disabled style="opacity:0.5">💾 Guardar Corrida</button>' +
-      '<span style="font-size:11px;color:var(--grisMed)">Sube el archivo para habilitar el guardado · re-subir la misma fecha reemplaza la corrida</span></div>' +
+      '<span style="font-size:11px;color:var(--grisMed)">Genera la vista previa para habilitar el guardado · re-cargar la misma fecha reemplaza la corrida</span></div>' +
       '</div>';
     // Histórico de corridas
     html += '<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimas corridas registradas</div>';
@@ -6441,8 +6450,180 @@ async function corridaLeerExcel(){
 }
 window.corridaLeerExcel = corridaLeerExcel;
 
+// ── Traer las facturas CxP pendientes desde Contifico (empresas con API) ──
+// Mismo destino que el Excel de Acosux: arma _corridaPreview y reutiliza
+// corridaGuardar(). Los documentos entran con valor_aprobado=0 (nada
+// programado aún) → Roberto registra los pagos en Programación de Pagos.
+async function corridaTraerContifico(){
+  const idEmpresa = parseInt(document.getElementById("ic-empresa")?.value);
+  const fechaCorte = document.getElementById("ic-fecha")?.value;
+  const previewEl = document.getElementById("ic-preview");
+  const btnGuardar = document.getElementById("ic-btn-guardar");
+  const btnConti = document.getElementById("ic-btn-contifico");
+  if(!idEmpresa){ showError("Selecciona la empresa."); return; }
+  if(!fechaCorte){ showError("Selecciona la fecha de la corrida."); return; }
+  // Config Contifico de la empresa seleccionada
+  const cfg = (window._sbCache?.empresa_api_config||[])
+    .find(a=>a.id_empresa===idEmpresa && a.activo && a.tipo_erp==="contifico");
+  if(!cfg){
+    showError("Esta empresa no tiene API Contifico activa. Usa el reporte de Acosux (Excel) para Lukmar.");
+    return;
+  }
+  previewEl.style.display="block";
+  previewEl.innerHTML = '<div style="color:var(--grisMed);font-size:12px">⏳ Consultando facturas pendientes en Contifico...</div>';
+  _corridaPreview = null;
+  if(btnGuardar){ btnGuardar.disabled=true; btnGuardar.style.opacity="0.5"; }
+  if(btnConti){ btnConti.disabled=true; btnConti.style.opacity="0.6"; btnConti.textContent="⏳ Consultando Contifico..."; }
+  try {
+    // Credenciales: se lee de la config de ESA empresa (no del _venCFG global)
+    const apikey = cfg.api_key || "";
+    const token  = cfg.token_pos || "";
+    const proxy  = cfg.proxy_url || "";
+    if(!apikey && !proxy) throw new Error("La empresa no tiene proxy ni api_key configurados.");
+    const cGET = async (endpoint) => {
+      let r;
+      if(proxy){
+        r = await fetch(proxy+"?"+new URLSearchParams({endpoint}).toString(), {
+          headers:{ "Authorization":"Bearer "+SUPA_KEY, "x-contifico-apikey":apikey, "x-contifico-token":token }
+        });
+      } else {
+        r = await fetch("https://api.contifico.com/sistema/api/v1/"+endpoint, {
+          headers:{ "Authorization":apikey, "Token":token }
+        });
+      }
+      if(!r.ok) throw new Error("Contifico "+r.status+": "+(await r.text()).slice(0,120));
+      return r.json();
+    };
+    // Fechas dd/mm/yyyy · ventana de 24 meses hasta el corte
+    const _dmy = iso => { const [y,m,d]=iso.split("-"); return d+"/"+m+"/"+y; };
+    const corte = new Date(fechaCorte+"T00:00:00");
+    const desde = new Date(corte); desde.setMonth(desde.getMonth()-24);
+    const fIni = _dmy(desde.toISOString().slice(0,10)), fFin = _dmy(fechaCorte);
+    // Paginar facturas de compra pendientes (tipo_registro=PRO, tipo=FAC, estado=P)
+    const docs = [];
+    for(let page=1; page<=120; page++){
+      const qs = new URLSearchParams({
+        tipo_registro:"PRO", tipo:"FAC", estado:"P",
+        fecha_inicial:fIni, fecha_final:fFin,
+        result_size:"100", result_page:String(page)
+      }).toString();
+      const pg = await cGET("registro/documento/?"+qs);
+      if(!Array.isArray(pg) || pg.length===0) break;
+      docs.push(...pg);
+      previewEl.innerHTML = '<div style="color:var(--grisMed);font-size:12px">⏳ Trayendo facturas... ('+docs.length+')</div>';
+      if(pg.length<100) break;
+    }
+    // Mapear a la estructura de la corrida (idéntica al parser del Excel)
+    const nf = v => { const n=parseFloat(v); return isFinite(n)?n:0; };
+    const _apiISO = s => { // Contifico: "dd/mm/yyyy"
+      if(!s) return null; const [d,m,y]=String(s).split("/");
+      return (y&&m&&d) ? `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}` : null;
+    };
+    // ── UPSERT-PRESERVE sobre la corrida VIVA (mismo algoritmo que el sync
+    //    diario): no pisa la programación de Tesorería. ─────────────────────
+    const estadoDe = (vAprob, dv) => {
+      const aprob = vAprob>0, venc = dv>0;
+      return aprob ? (venc?"Atrasado":"Cumplido") : (venc?"Impago":"Vigente");
+    };
+    const desired = new Map();
+    let omit = 0;
+    docs.forEach(d=>{
+      if(d.anulado){ omit++; return; }
+      const saldo = nf(d.saldo);
+      if(saldo<=0){ omit++; return; }
+      const cid = String(d.id||"");
+      if(!cid){ omit++; return; }
+      const fVenc = _apiISO(d.fecha_vencimiento) || _apiISO(d.fecha_emision);
+      const dv = fVenc ? Math.floor((corte - new Date(fVenc+"T00:00:00"))/86400000) : 0;
+      const p = d.persona || {};
+      desired.set(cid, {
+        saldo, dias_vencidos: Math.round(dv),
+        fecha_emision: _apiISO(d.fecha_emision), fecha_vencimiento: fVenc,
+        proveedor_ruc: (p.ruc||p.cedula||"").trim() || null,
+        proveedor_nombre: (p.razon_social||p.nombre_comercial||"").trim() || null,
+        documento: String(d.documento||cid).trim(),
+        detalle: (d.descripcion||"").trim() || null
+      });
+    });
+    if(!desired.size) throw new Error("Contifico no devolvió facturas pendientes para el rango.");
+
+    // Filas vivas existentes (para preservar la programación)
+    const existentes = await sbQueryPaginated("fin_pago_prov_corrida",
+      "id_empresa=eq."+idEmpresa+"&fuente=eq.contifico&select=id,contifico_doc_id,valor_aprobado,saldado");
+    const exById = new Map((existentes||[]).map(r=>[String(r.contifico_doc_id), r]));
+    const nowIso = new Date().toISOString();
+    const nuevos = []; let nInsert=0, nUpdate=0, nSaldado=0;
+    for(const [cid, dd] of desired){
+      const ex = exById.get(cid);
+      const dv = dd.dias_vencidos;
+      if(!ex){
+        nuevos.push({ id_empresa:idEmpresa, fecha_corte:fechaCorte, anio, mes, semana,
+          contifico_doc_id:cid, ...dd, valor_aprobado:0, valor_aprobado_original:0,
+          estado:estadoDe(0,dv), activo:true, saldado:false, sincronizado_en:nowIso,
+          fuente:"contifico", actualizado_por: sesion?.email||"sistema" });
+        nInsert++;
+      } else {
+        await sbUpdate("fin_pago_prov_corrida", {
+          saldo:dd.saldo, dias_vencidos:dv, fecha_vencimiento:dd.fecha_vencimiento,
+          fecha_emision:dd.fecha_emision, proveedor_ruc:dd.proveedor_ruc,
+          proveedor_nombre:dd.proveedor_nombre, documento:dd.documento, detalle:dd.detalle,
+          estado:estadoDe(parseFloat(ex.valor_aprobado||0), dv),
+          saldado:false, saldado_en:null, sincronizado_en:nowIso
+        }, "id", ex.id);
+        nUpdate++;
+      }
+    }
+    for(let i=0;i<nuevos.length;i+=200){ await sbInsert("fin_pago_prov_corrida", nuevos.slice(i,i+200)); }
+    // Marcar saldados (existían y ya no están en Contifico)
+    for(const r of (existentes||[])){
+      if(!desired.has(String(r.contifico_doc_id)) && r.saldado!==true){
+        await sbUpdate("fin_pago_prov_corrida", {saldado:true, saldado_en:nowIso, sincronizado_en:nowIso}, "id", r.id);
+        nSaldado++;
+      }
+    }
+    // Agregado vivo en pagos_proveedores (solo activos y no saldados)
+    const act = await sbQueryPaginated("fin_pago_prov_corrida",
+      "id_empresa=eq."+idEmpresa+"&fuente=eq.contifico&saldado=eq.false&activo=eq.true&select=estado,valor_aprobado,saldo");
+    const cnt = e => (act||[]).filter(r=>r.estado===e).length;
+    const mto = e => (act||[]).filter(r=>r.estado===e).reduce((s,r)=>s+parseFloat(r.saldo||0),0);
+    const pagado = (act||[]).filter(r=>r.estado==="Cumplido"||r.estado==="Atrasado").reduce((s,r)=>s+parseFloat(r.valor_aprobado||0),0);
+    const cumplio=cnt("Cumplido")+cnt("Atrasado"), impago=cnt("Impago"), total=cumplio+impago;
+    const pct = total>0 ? cumplio/total*100 : 0;
+    const filaAgg = { id_empresa:idEmpresa, anio, mes, semana, periodo_label:"Corrida viva",
+      fecha_corte:fechaCorte, cumplieron:cumplio, no_cumplieron:impago, total, n_vigentes:cnt("Vigente"),
+      pct_cumplimiento:Math.round(pct*10)/10, pct_incumplimiento:Math.round((100-pct)*10)/10,
+      meta_pct:0.95, semaforo: pct>=95?"verde":pct>=80?"amarillo":"rojo",
+      monto_cumplio:Math.round(pagado*100)/100, monto_no_cumplio:Math.round(mto("Impago")*100)/100,
+      monto_vigente:Math.round(mto("Vigente")*100)/100, fuente:"contifico", es_viva:true,
+      cargado_por: sesion?.email||"sistema", cargado_en:nowIso };
+    const prevAgg = (window._sbCache?.pagos_proveedores||[]).find(p=>p.id_empresa===idEmpresa && p.es_viva===true);
+    if(prevAgg){ await sbUpdate("pagos_proveedores", filaAgg, "id", prevAgg.id); }
+    else       { await sbInsert("pagos_proveedores", filaAgg); }
+    window._sbCache.pagos_proveedores = await sbQuery("pagos_proveedores", {select:"*", order:"anio.asc,mes.asc", limit:500}).catch(()=>window._sbCache.pagos_proveedores||[]);
+
+    const empNom = (window._sbCache?.empresas||[]).find(e=>e.id===idEmpresa)?.nombre || "Empresa";
+    previewEl.innerHTML =
+      '<div style="font-weight:700;color:var(--verde);font-size:13px;margin-bottom:10px">✓ Corrida viva actualizada · '+esc(empNom)+' · '+fechaCorte.split("-").reverse().join("/")+'</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">' +
+      [["Facturas activas",(act||[]).length,"var(--azul)"],["Nuevas",nInsert,"var(--verde)"],["Actualizadas",nUpdate,"var(--tq)"],["Saldadas",nSaldado,"var(--grisMed)"]]
+        .map(m=>'<div style="text-align:center;padding:10px;background:#fff;border:1px solid var(--borde);border-radius:8px">' +
+          '<div style="font-size:10px;color:var(--grisMed);font-weight:700;text-transform:uppercase">'+m[0]+'</div>' +
+          '<div style="font-size:20px;font-weight:800;font-family:Raleway,sans-serif;color:'+m[2]+'">'+m[1].toLocaleString("en-US")+'</div></div>').join("") +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--grisMed)">Impago $'+Math.round(mto("Impago")).toLocaleString("en-US")+' · Vigente $'+Math.round(mto("Vigente")).toLocaleString("en-US")+' · '+omit+' descartadas. La programación previa de Tesorería se conservó.</div>' +
+      '<div style="margin-top:10px;padding:10px;background:#F0FBFC;border:1px solid var(--tq);border-radius:8px;font-size:11px;color:#0a5a7a">💡 Gestioná los pagos factura por factura en <button onclick="window._ppgPreselect={idEmpresa:'+idEmpresa+',fechaCorte:\''+esc(fechaCorte)+'\'};setIngresoTab(\'progpagos\')" style="border:none;background:var(--tq);color:#fff;padding:3px 10px;border-radius:4px;cursor:pointer;font-weight:700">💰 Programación de Pagos</button></div>';
+    showSuccess("✓ Corrida viva actualizada: "+nInsert+" nuevas · "+nUpdate+" actualizadas · "+nSaldado+" saldadas");
+  } catch(e){
+    console.error("[corrida-contifico]", e);
+    previewEl.innerHTML = '<div style="color:var(--rojo);font-size:12px">✕ '+esc(e.message)+'</div>';
+  } finally {
+    if(btnConti){ btnConti.disabled=false; btnConti.style.opacity="1"; btnConti.textContent="💳 Traer de Contifico — facturas CxP pendientes de la empresa seleccionada"; }
+  }
+}
+window.corridaTraerContifico = corridaTraerContifico;
+
 async function corridaGuardar(){
-  if(!_corridaPreview){ showError("Primero sube y valida el archivo."); return; }
+  if(!_corridaPreview){ showError("Primero genera la vista previa (Excel o Contifico)."); return; }
   const idEmpresa = parseInt(document.getElementById("ic-empresa")?.value);
   if(!idEmpresa){ showError("Selecciona la empresa."); return; }
   const btn = document.getElementById("ic-btn-guardar");
@@ -6472,7 +6653,7 @@ async function corridaGuardar(){
       monto_cumplio: Math.round(resumen.monto_cumplio*100)/100,
       monto_no_cumplio: Math.round(resumen.monto_no_cumplio*100)/100,
       monto_vigente: Math.round(resumen.monto_vigente*100)/100,
-      fuente: "acosux",
+      fuente: (detalle[0]?.fuente) || "acosux",   // acosux (Excel) | contifico (API)
       cargado_por: sesion?.email||"sistema",
       cargado_en: new Date().toISOString()
     };
@@ -6637,24 +6818,40 @@ async function ppgCargar(){
   if(!selEmp || !selCor) return;
   if(window._ppgPreselect){ selEmp.value = String(window._ppgPreselect.idEmpresa); }
   const idEmp = parseInt(selEmp.value);
+  // Corrida VIVA (Contifico, es_viva=true) primero; luego snapshots por fecha (Acosux).
   const corridas = (window._sbCache?.pagos_proveedores||[])
     .filter(p=>p.id_empresa===idEmp && p.fecha_corte)
-    .sort((a,b)=>(b.fecha_corte||"").localeCompare(a.fecha_corte||""));
-  const prevSel = window._ppgPreselect?.fechaCorte || selCor.value;
-  selCor.innerHTML = corridas.map(p=>'<option value="'+p.fecha_corte+'">'+
-    p.fecha_corte.split("-").reverse().join("/")+' · '+(p.periodo_label||("Sem."+p.semana))+'</option>').join("");
-  if(prevSel && corridas.some(p=>p.fecha_corte===prevSel)) selCor.value = prevSel;
+    .sort((a,b)=>{
+      if(!!b.es_viva !== !!a.es_viva) return a.es_viva ? -1 : 1;   // viva arriba
+      return (b.fecha_corte||"").localeCompare(a.fecha_corte||"");
+    });
+  // value: "viva" para la corrida continua · "snap:<fecha>" para los snapshots
+  const _optVal = p => p.es_viva ? "viva" : ("snap:"+p.fecha_corte);
+  const _optLbl = p => p.es_viva
+    ? "🔄 Corrida viva (Contifico) · act. "+(p.fecha_corte.split("-").reverse().join("/"))
+    : (p.fecha_corte.split("-").reverse().join("/")+" · "+(p.periodo_label||("Sem."+p.semana)));
+  const prevSel = (window._ppgPreselect?.fechaCorte) ? null : selCor.value;
+  selCor.innerHTML = corridas.map(p=>'<option value="'+_optVal(p)+'">'+_optLbl(p)+'</option>').join("");
+  // Preselección: si viene de un botón, priorizar la viva; si no, respetar la selección previa
+  if(window._ppgPreselect && corridas.some(p=>p.es_viva)) selCor.value = "viva";
+  else if(prevSel && corridas.some(p=>_optVal(p)===prevSel)) selCor.value = prevSel;
   window._ppgPreselect = null;
   if(!corridas.length){
-    cont.innerHTML = '<div class="card" style="text-align:center;color:var(--grisMed);padding:30px">Sin corridas cargadas para esta empresa · sube el reporte en la pestaña <b>Corrida de Pagos</b></div>';
+    cont.innerHTML = '<div class="card" style="text-align:center;color:var(--grisMed);padding:30px">Sin corridas para esta empresa · usá <b>Corrida de Pagos</b> (Excel de Acosux o botón <b>Traer de Contifico</b>)</div>';
     window._ppgCtx = null; return;
   }
-  const fecha = selCor.value;
+  const sel = selCor.value || _optVal(corridas[0]);
+  const esViva = sel === "viva";
   cont.innerHTML = '<div style="color:var(--grisMed);font-size:12px;padding:20px;text-align:center">⏳ Cargando documentos de la corrida...</div>';
   try {
-    const rows = await sbQueryPaginated("fin_pago_prov_corrida",
-      "id_empresa=eq."+idEmp+"&fecha_corte=eq."+fecha+"&order=saldo.desc");
-    window._ppgCtx = { rows: Array.isArray(rows)?rows:[], idEmp, fecha, sel:new Set(), editId:null, motivoId:null };
+    // Corrida viva → cargar por fuente (fechas mixtas); snapshot → por fecha_corte
+    const filtro = esViva
+      ? "id_empresa=eq."+idEmp+"&fuente=eq.contifico&saldado=eq.false&order=saldo.desc"  // saldadas → histórico, fuera de la vista activa
+      : "id_empresa=eq."+idEmp+"&fecha_corte=eq."+sel.replace(/^snap:/,"")+"&order=saldo.desc";
+    const rows = await sbQueryPaginated("fin_pago_prov_corrida", filtro);
+    window._ppgCtx = { rows: Array.isArray(rows)?rows:[], idEmp,
+      fecha: esViva ? (corridas.find(p=>p.es_viva)?.fecha_corte) : sel.replace(/^snap:/,""),
+      esViva, sel:new Set(), editId:null, motivoId:null };
     _ppgRender();
   } catch(e){
     console.error("[ppg]", e);
@@ -7189,8 +7386,9 @@ async function _ppgRecalcAgregado(){
     monto_no_cumplio: Math.round(monto("Impago")*100)/100,
     monto_vigente: Math.round(monto("Vigente")*100)/100
   };
+  // Corrida viva → la fila agregada es la es_viva; snapshot → por fecha_corte
   const agg = (window._sbCache?.pagos_proveedores||[])
-    .find(p => p.id_empresa===ctx.idEmp && p.fecha_corte===ctx.fecha);
+    .find(p => p.id_empresa===ctx.idEmp && (ctx.esViva ? p.es_viva===true : p.fecha_corte===ctx.fecha));
   if(agg){
     await sbUpdate("pagos_proveedores", fila, "id", agg.id);
     Object.assign(agg, fila);
