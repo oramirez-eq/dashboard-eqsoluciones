@@ -1233,12 +1233,17 @@ async function cargarDBResto(){
     // El DETALLE por documento (fin_pago_prov_corrida) NO se cachea — se consulta
     // bajo demanda en el drill-down (crece ~2.3k filas por corrida semanal).
     const fin_pago_prov_config = await q("fin_pago_prov_config", {select:"*"}).catch(()=>[]);
+    // TES-IND-002 Cartera Vencida (CxC) — serie mensual + config (tolerante: DDL en migración)
+    const fin_cxc_mensual = await q("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
+    const fin_cxc_config  = await q("fin_cxc_config",  {select:"*"}).catch(()=>[]);
+    const fin_cxc_cartera = await q("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc,total.desc", limit:5000}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2074,6 +2079,11 @@ function renderContent(){
         ["pagos","\uD83D\uDCC6 FIN-IND-001 Pago Proveedores"],
         ["cobro","\uD83D\uDCB3 FIN-IND-004 Efectividad de Cobro"],
       ];
+      // TES-IND-002 Cartera Vencida (CxC) \u2014 empresas con modelo anexo gerencial
+      // (Lukmar camaronera: liquidaci\u00F3n proceso planta fuera de Acosux). Ampliable.
+      const CXC_EMPRESAS = ["LUKMAR"];
+      if(CXC_EMPRESAS.includes(filtros.empresa)) tabsBase.push(["cartera_cxc","\uD83D\uDCCA TES-IND-002 Cartera Vencida"]);
+      if(finTab==="cartera_cxc" && !CXC_EMPRESAS.includes(filtros.empresa)) finTab="pagos";
       // FIN-IND-005 solo si la empresa activa tiene config API en BD
       const cache2 = window._sbCache||{};
       const empActiva = (cache2.empresas||[]).find(e=>e.codigo===filtros.empresa);
@@ -2106,6 +2116,7 @@ function renderContent(){
     })(); // cierre IIFE tabs finanzas
     try {
       finBodyDiv.innerHTML = finTab==="cobro"         ? renderEfectividadCobro() :
+                             finTab==="cartera_cxc"   ? renderCarteraCxC() :
                              finTab==="ventas"        ? "<div id='ven-container'></div>" :
                              finTab==="formas_pago"   ? "<div id='fin006-container'></div>" :
                              finTab==="descuentos"    ? "<div id='fin007-container'></div>" :
@@ -2117,6 +2128,7 @@ function renderContent(){
     }
     setTimeout(function(){
       if(finTab==="cobro") initChartsEfectividad();
+      else if(finTab==="cartera_cxc"){ setTimeout(()=>{ try{ initChartsCarteraCxC(); }catch(e){ console.error("[cxc-charts]", e); } },60); }
       else if(finTab==="ventas"){
       setTimeout(async function(){
         await venCargarConfig();  // carga config API de la empresa activa
@@ -5060,6 +5072,311 @@ function initChartsFinanzas(){
 }
 
 // ═══════════════════════════════════════════════════════════════
+// TES-IND-002 · CARTERA VENCIDA (CxC) — Lukmar camaronera
+// Fuente: anexo GERENCIAL SEMANAL "TES-ANX-004 Análisis Cartera Gerencial"
+// (hoja "Analisis CxC"). La serie mensual replica la hoja "CxC 2026".
+// ═══════════════════════════════════════════════════════════════
+function cxcSort(col){
+  const s = window._cxcSort || {col:"total", dir:-1};
+  window._cxcSort = (s.col===col) ? {col, dir:-s.dir} : {col, dir:-1};
+  renderContent();
+}
+window.cxcSort = cxcSort;
+
+function renderCarteraCxC(){
+  const anioF = filtroPeriodo.anio>0 ? filtroPeriodo.anio : 2026;
+  const mesF  = filtroPeriodo.mes>0  ? filtroPeriodo.mes  : 0;
+  const emp   = filtros.empresa;
+  const cache = window._sbCache||{};
+  const empObj = (cache.empresas||[]).find(e=>e.codigo===emp);
+  const idEmp  = empObj?.id;
+  const _f$  = v => "$"+Math.round(v||0).toLocaleString("en-US");
+  const _f0  = v => Math.round(v||0).toLocaleString("en-US");
+
+  // Config: objetivo % vencido + umbral amarillo (semáforo: menor es mejor)
+  const cfg = (cache.fin_cxc_config||[]).find(x=>x.id_empresa===idEmp) || {};
+  const objVenc = cfg.objetivo_pct_vencido!=null ? parseFloat(cfg.objetivo_pct_vencido) : 40;
+  const umbAmar = cfg.umbral_amarillo!=null ? parseFloat(cfg.umbral_amarillo) : 55;
+  const semCxc  = pv => pv<=objVenc ? "verde" : pv<=umbAmar ? "amarillo" : "rojo";
+
+  // ── Serie mensual del año seleccionado (réplica CxC 2026) ──
+  const mens = (cache.fin_cxc_mensual||[]).filter(m=>m.id_empresa===idEmp && m.anio===anioF);
+  const byMes = {}; mens.forEach(m=>{ byMes[m.mes]=m; });
+  const meses12 = [];
+  for(let mm=1; mm<=12; mm++){
+    const r = byMes[mm];
+    const tot = r ? (+r.total||0) : 0;
+    meses12.push({mes:mm, pv:r?+r.por_vencer||0:0, ve:r?+r.vencido||0:0, le:r?+r.legal||0:0,
+      tot, tiene: !!r && tot>0, fuente:r?.fuente, fecha:r?.fecha_informe, semana:r?.semana});
+  }
+  const conDato = meses12.filter(m=>m.tiene);
+
+  // ── Snapshot de cartera por cliente (último anexo cargado) ──
+  const snapsEmp = (cache.fin_cxc_cartera||[]).filter(c=>c.id_empresa===idEmp);
+  const fechasSnap = [...new Set(snapsEmp.map(c=>c.fecha_informe))].sort().reverse();
+  const fechaSnap  = fechasSnap[0] || null;
+  const snap = fechaSnap ? snapsEmp.filter(c=>c.fecha_informe===fechaSnap) : [];
+
+  const empNom = empObj?.nombre || emp;
+  let html = buildPeriodoUI();
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">' +
+    '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">📊 Cartera de Clientes (CxC) — '+esc(empNom)+'</div>' +
+    '<div style="font-size:11px;color:var(--grisMed)">TES-IND-002 · Cartera Vencida · '+(mesF>0?MESES_N[mesF]+" ":"")+anioF+'</div></div>' +
+    '<div style="font-size:10px;color:var(--grisMed);text-align:right">Fuente<br><span style="color:var(--tq);font-weight:700">ANEXO GERENCIAL SEMANAL</span></div>' +
+    '</div>';
+
+  // ── Estado vacío ──
+  if(!conDato.length && !snap.length){
+    html += '<div class="card" style="text-align:center;padding:36px">' +
+      '<div style="font-size:34px">🦐</div>' +
+      '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;margin-top:10px">Sin cartera cargada para '+esc(empNom)+'</div>' +
+      '<div style="font-size:12px;color:var(--grisMed);margin-top:6px;max-width:560px;margin-left:auto;margin-right:auto">' +
+      'Cargá el anexo <b>TES-ANX-004 Análisis Cartera Gerencial</b> (hoja <b>Analisis CxC</b>) en <b>+ Ingresar Datos → Cartera Clientes (CxC)</b>. ' +
+      'Lukmar factura vía <b>liquidación proceso planta</b> (no reposa en Acosux), por eso la fuente es este anexo semanal.</div>' +
+      '<button onclick="irAIngreso(\'cartera-cxc\')" style="margin-top:14px;padding:8px 16px;font-size:12px;font-weight:700;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer">📥 Ir a Cargar Cartera</button>' +
+      '</div>';
+    return html;
+  }
+
+  // Mes de referencia para el KPI titular: el mes filtrado (si tiene dato) o el último con dato
+  let mesRef = (mesF>0 && byMes[mesF] && (+byMes[mesF].total)>0) ? meses12[mesF-1]
+             : (conDato.length ? conDato[conDato.length-1] : null);
+  const pvRef = mesRef && mesRef.tot>0 ? mesRef.ve/mesRef.tot*100 : 0;   // % vencido del mes ref
+  const cRef  = sc(semCxc(pvRef));
+  // Promedio del año (sobre meses con dato)
+  const promVenc = conDato.length ? conDato.reduce((s,m)=>s+(m.tot>0?m.ve/m.tot*100:0),0)/conDato.length : 0;
+  const totCartRef = mesRef ? mesRef.tot : 0;
+
+  // ── Fila KPI + métricas ──
+  const refLbl = mesRef ? (MESES_N[mesRef.mes]+" "+anioF) : "—";
+  const refSub = mesRef ? (mesRef.fuente==="anexo_semanal" && mesRef.fecha
+                    ? "corte "+mesRef.fecha.split("-").reverse().join("/")+(mesRef.semana?" · Sem "+mesRef.semana:"")
+                    : "histórico hoja CxC "+anioF) : "";
+  html += '<div style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:16px">';
+  html += '<div class="card" style="border-left:4px solid '+cRef+';text-align:center;padding:24px 18px">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--grisMed);margin-bottom:6px">TES-IND-002 · '+esc(refLbl)+'</div>' +
+    '<div style="font-size:13px;font-weight:700;color:var(--azul);margin-bottom:2px">% Cartera Vencida</div>' +
+    '<div style="font-size:10px;color:var(--grisMed);margin-bottom:10px;line-height:1.35">Proporción de la cartera que ya <b>venció</b> sobre el total (por vencer + vencido + legal).</div>' +
+    '<div style="font-size:48px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+cRef+';line-height:1">'+pvRef.toFixed(1)+'%</div>' +
+    '<div style="font-size:12px;color:var(--grisMed);margin:8px 0">meta: ≤ '+objVenc.toFixed(0)+'%</div>' +
+    '<div style="height:6px;background:var(--grisLight);border-radius:3px;overflow:hidden;margin:8px 0">' +
+    '<div style="width:'+Math.min(pvRef,100)+'%;height:100%;background:'+cRef+'"></div></div>' +
+    '<span class="kpi-badge" style="background:'+cRef+'18;color:'+cRef+';border:1px solid '+cRef+'40;font-size:11px;padding:4px 12px">'+(semCxc(pvRef)==="verde"?"✓ EN META":semCxc(pvRef)==="amarillo"?"⚡ ALERTA":"✕ CRÍTICO")+'</span>' +
+    (refSub?'<div style="font-size:9px;color:var(--grisMed);margin-top:8px">'+esc(refSub)+'</div>':'') +
+    '</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">';
+  [{l:"Cartera Total",v:_f$(totCartRef),s:esc(refLbl),c:"var(--azul)",
+     info:"Saldo total por cobrar de la cartera operativa en "+esc(refLbl)+" (excluye CxC relacionadas / intercompañía)."},
+   {l:"Por Vencer",v:_f$(mesRef?mesRef.pv:0),s:(totCartRef>0?((mesRef.pv/totCartRef*100).toFixed(0)+"% del total"):null),c:"var(--verde)",
+     info:"Documentos aún dentro del plazo de crédito (no vencidos)."},
+   {l:"Vencido",v:_f$(mesRef?mesRef.ve:0),s:(totCartRef>0?(pvRef.toFixed(0)+"% del total"):null),c:"var(--rojo)",
+     info:"Documentos con plazo de crédito ya cumplido y sin cobrar."},
+   {l:"Legal",v:_f$(mesRef?mesRef.le:0),s:(totCartRef>0&&mesRef.le>0?((mesRef.le/totCartRef*100).toFixed(0)+"% del total"):"sin cartera legal"),c:"#8B0000",
+     info:"Cartera en gestión de cobro legal (+361 días clasificados como legal)."},
+   {l:"Promedio "+anioF,v:promVenc.toFixed(1)+"%",s:"% vencido medio",c:"var(--tq)",
+     info:"% de cartera vencida promedio de los meses con dato en "+anioF+"."},
+   {l:"Empacadoras",v:snap.length? _f0(snap.filter(c=>!c.es_relacionada && c.total>0).length):"—",
+     s:snap.length?"con saldo":"sin snapshot",c:"var(--azul)",
+     info:"Clientes con saldo en el último anexo cargado"+(fechaSnap?" ("+fechaSnap.split("-").reverse().join("/")+")":"")+"."}
+  ].forEach(m=>{
+    html += '<div class="metric-card eq-tip" style="padding:14px 18px;cursor:help">' +
+      '<div class="metric-label">'+m.l+' <span style="opacity:.5;font-size:11px">ⓘ</span></div>' +
+      '<div style="font-size:24px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div>' +
+      (m.s?'<div style="font-size:12px;font-weight:700;color:'+m.c+';opacity:.85;margin-top:2px;font-variant-numeric:tabular-nums">'+m.s+'</div>':'') +
+      '<span class="eq-tip-b">'+esc(m.info)+'</span>' +
+      '</div>';
+  });
+  html += '</div></div>';
+
+  // ── Evolución mensual (tabla CxC 2026) + gráfico ──
+  window._cxcMeses12 = meses12; // para el chart
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+  html += '<div class="card"><div class="section-title">Evolución Mensual '+anioF+' — Por Vencer / Vencido / Legal</div>';
+  html += '<div style="max-height:300px;overflow-y:auto;border:1px solid var(--borde);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr>';
+  ["Mes","Por vencer","Vencido","Legal","Total","% Venc."].forEach(h=>{
+    html += '<th style="position:sticky;top:0;z-index:2;background:var(--azul);color:#fff;padding:7px 8px;text-align:'+(h==="Mes"?"left":"right")+';font-size:10px;white-space:nowrap">'+h+'</th>';
+  });
+  html += '</tr></thead><tbody>';
+  meses12.forEach((m,i)=>{
+    if(!m.tiene && m.mes>(conDato.length?conDato[conDato.length-1].mes:0)) return; // ocultar meses futuros vacíos
+    const bg = i%2===0?"var(--blanco)":"var(--grisLight)";
+    const pv = m.tot>0 ? m.ve/m.tot*100 : 0;
+    const cp = m.tot>0 ? sc(semCxc(pv)) : "var(--grisMed)";
+    html += '<tr><td style="padding:6px 8px;background:'+bg+';font-weight:700">'+MESES_N[m.mes]+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:var(--verde);font-variant-numeric:tabular-nums">'+(m.tiene?_f$(m.pv):"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:var(--rojo);font-variant-numeric:tabular-nums">'+(m.tiene?_f$(m.ve):"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:#8B0000;font-variant-numeric:tabular-nums">'+(m.tiene?_f$(m.le):"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;font-weight:700;font-variant-numeric:tabular-nums">'+(m.tiene?_f$(m.tot):"—")+'</td>' +
+      '<td style="padding:6px 8px;background:'+bg+';text-align:right;font-weight:800;color:'+cp+'">'+(m.tiene?pv.toFixed(1)+"%":"—")+'</td></tr>';
+  });
+  html += '</tbody>';
+  if(conDato.length){
+    const sPv=conDato.reduce((s,m)=>s+m.pv,0)/conDato.length;
+    const sVe=conDato.reduce((s,m)=>s+m.ve,0)/conDato.length;
+    const sLe=conDato.reduce((s,m)=>s+m.le,0)/conDato.length;
+    const sTo=conDato.reduce((s,m)=>s+m.tot,0)/conDato.length;
+    html += '<tfoot><tr style="position:sticky;bottom:0;z-index:2;background:var(--azul)">' +
+      '<td style="padding:7px 8px;color:#fff;font-weight:800">PROMEDIO</td>' +
+      '<td style="padding:7px 8px;color:#6ECE8E;font-weight:800;text-align:right">'+_f$(sPv)+'</td>' +
+      '<td style="padding:7px 8px;color:#ff9999;font-weight:800;text-align:right">'+_f$(sVe)+'</td>' +
+      '<td style="padding:7px 8px;color:#ffb0b0;font-weight:800;text-align:right">'+_f$(sLe)+'</td>' +
+      '<td style="padding:7px 8px;color:#fff;font-weight:800;text-align:right">'+_f$(sTo)+'</td>' +
+      '<td style="padding:7px 8px;color:'+cRef+';font-weight:800;text-align:right">'+(sTo>0?(sVe/sTo*100).toFixed(1)+"%":"—")+'</td></tr></tfoot>';
+  }
+  html += '</table></div></div>';
+  html += '<div class="card"><div class="section-title">Composición Mensual de la Cartera</div><div style="height:300px;position:relative"><canvas id="cxc-mensual"></canvas></div></div>';
+  html += '</div>';
+
+  // ── Resumen trimestral (promedio de los 3 meses del trimestre) ──
+  const trims = [[1,2,3],[4,5,6],[7,8,9],[10,11,12]].map((ms,qi)=>{
+    const dd = ms.map(mm=>meses12[mm-1]).filter(x=>x.tiene);
+    if(!dd.length) return {q:qi+1, tiene:false};
+    const pv=dd.reduce((s,x)=>s+x.pv,0)/dd.length, ve=dd.reduce((s,x)=>s+x.ve,0)/dd.length,
+          le=dd.reduce((s,x)=>s+x.le,0)/dd.length, to=dd.reduce((s,x)=>s+x.tot,0)/dd.length;
+    return {q:qi+1, tiene:true, pv, ve, le, to, n:dd.length};
+  });
+  if(trims.some(t=>t.tiene)){
+    html += '<div class="card" style="margin-bottom:16px"><div class="section-title">Resumen por Trimestre '+anioF+' — promedio mensual</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">';
+    trims.forEach(t=>{
+      const pv = t.tiene && t.to>0 ? t.ve/t.to*100 : 0;
+      const cq = t.tiene && t.to>0 ? sc(semCxc(pv)) : "var(--grisMed)";
+      html += '<div style="padding:14px;border:1.5px solid var(--borde);border-radius:10px">' +
+        '<div style="font-size:11px;font-weight:800;color:var(--azul)">'+t.q+'T '+anioF+'</div>' +
+        (t.tiene
+          ? '<div style="font-size:26px;font-weight:800;font-family:Raleway,sans-serif;color:'+cq+';line-height:1.2;margin:6px 0 2px">'+pv.toFixed(1)+'%</div>' +
+            '<div style="font-size:10px;color:var(--grisMed);margin-bottom:6px">vencido · '+t.n+' mes'+(t.n!==1?"es":"")+'</div>' +
+            '<div style="font-size:11px;line-height:1.6">' +
+              '<span style="color:var(--verde);font-weight:700">'+_f$(t.pv)+'</span> por vencer<br>' +
+              '<span style="color:var(--rojo);font-weight:700">'+_f$(t.ve)+'</span> vencido<br>' +
+              '<span style="color:var(--azul);font-weight:700">'+_f$(t.to)+'</span> total' +
+            '</div>'
+          : '<div style="font-size:15px;font-weight:700;color:var(--grisMed);margin:16px 0">Sin dato</div>') +
+        '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── Detalle de cartera por cliente (último anexo) + distribución de antigüedad ──
+  if(snap.length){
+    const s = window._cxcSort || {col:"total", dir:-1};
+    const snapSort = snap.slice().sort((a,b)=>{
+      let va=a[s.col], vb=b[s.col];
+      if(typeof va==="string"||typeof vb==="string"){ va=String(va||"").toLowerCase(); vb=String(vb||"").toLowerCase(); return va<vb?-s.dir:va>vb?s.dir:0; }
+      return ((+va||0)-(+vb||0))*s.dir;
+    });
+    const tCart = snap.filter(c=>!c.es_relacionada).reduce((a,c)=>a+(+c.total||0),0);
+    const tRel  = snap.filter(c=>c.es_relacionada).reduce((a,c)=>a+(+c.total||0),0);
+    const arrow = c => s.col===c ? (s.dir<0?" ▼":" ▲") : "";
+    const th = (c,l,al)=>'<th onclick="cxcSort(\''+c+'\')" style="position:sticky;top:0;z-index:2;background:var(--azul);color:#fff;padding:7px 8px;text-align:'+(al||"right")+';font-size:10px;white-space:nowrap;cursor:pointer;user-select:none">'+l+arrow(c)+'</th>';
+
+    html += '<div class="card" style="margin-bottom:16px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+      '<div class="section-title" style="margin:0">Cartera por Cliente — corte '+(fechaSnap?fechaSnap.split("-").reverse().join("/"):"—")+'</div>' +
+      '<div style="font-size:11px;color:var(--grisMed)">Cartera operativa <b style="color:var(--azul)">'+_f$(tCart)+'</b>'+(tRel>0?' · relacionadas (fuera de cartera) <b style="color:var(--grisMed)">'+_f$(tRel)+'</b>':'')+'</div></div>';
+    html += '<div style="max-height:360px;overflow-y:auto;border:1px solid var(--borde);border-radius:8px;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr>'+th("cliente","Cliente","left")+th("clasificacion","Clasif.","left")+th("por_vencer","Por vencer")+th("vencido","Vencido")+th("legal","Legal")+th("total","Total")+th("pct_utilizacion","% Cupo")+'</tr></thead><tbody>';
+    snapSort.forEach((c,i)=>{
+      const bg = i%2===0?"var(--blanco)":"var(--grisLight)";
+      const rel = c.es_relacionada;
+      const util = c.pct_utilizacion!=null ? (parseFloat(c.pct_utilizacion)*100) : null;
+      const cu = util==null?"var(--grisMed)":util>100?"var(--rojo)":util>80?"var(--amarillo)":"var(--verde)";
+      const aging = [["1-7",c.v_1_7],["8-15",c.v_8_15],["16-30",c.v_16_30],["31-45",c.v_31_45],["45-180",c.v_45_180],["181-360",c.v_181_360],["+361",c.v_361]]
+        .filter(x=>+x[1]>0).map(x=>x[0]+": "+_f$(x[1])).join(" · ") || "sin antigüedad vencida";
+      html += '<tr><td class="eq-tip" style="padding:6px 8px;background:'+bg+';font-weight:600;position:relative">' +
+          '<span style="display:inline-block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">'+(rel?'🔗 ':'')+esc(c.cliente)+'</span>' +
+          '<span class="eq-tip-b">'+esc(c.cliente)+' — antigüedad del vencido:<br>'+aging+'</span></td>' +
+        '<td style="padding:6px 8px;background:'+bg+';color:var(--grisMed);font-size:11px">'+esc(c.clasificacion||"—")+'</td>' +
+        '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:var(--verde);font-variant-numeric:tabular-nums">'+_f$(c.por_vencer)+'</td>' +
+        '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:var(--rojo);font-variant-numeric:tabular-nums">'+_f$(c.vencido)+'</td>' +
+        '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:#8B0000;font-variant-numeric:tabular-nums">'+_f$(c.legal)+'</td>' +
+        '<td style="padding:6px 8px;background:'+bg+';text-align:right;font-weight:700;font-variant-numeric:tabular-nums">'+_f$(c.total)+'</td>' +
+        '<td style="padding:6px 8px;background:'+bg+';text-align:right;color:'+cu+';font-weight:600">'+(util==null?"—":util.toFixed(0)+"%")+'</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div style="font-size:10px;color:var(--grisMed);margin-top:8px">🔗 = CxC relacionada / intercompañía (no computa en la cartera operativa del indicador). Pasá el mouse sobre una fila para ver el desglose de antigüedad.</div>';
+    html += '</div>';
+
+    // Distribución de antigüedad del vencido (snapshot)
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
+    html += '<div class="card"><div class="section-title">Antigüedad del Vencido — corte '+(fechaSnap?fechaSnap.split("-").reverse().join("/"):"—")+'</div><div style="height:240px;position:relative"><canvas id="cxc-aging"></canvas></div></div>';
+    html += '<div class="card"><div class="section-title">Top Empacadoras por Saldo Vencido</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>' +
+      ['Cliente','Vencido','% del total'].map(h=>'<th style="background:var(--grisLight);color:var(--azul);padding:7px 10px;text-align:'+(h==="Cliente"?"left":"right")+';font-size:10px;font-weight:700;border-bottom:2px solid var(--borde)">'+h+'</th>').join("") +
+      '</tr></thead><tbody>';
+    const totVenc = snap.filter(c=>!c.es_relacionada).reduce((a,c)=>a+(+c.vencido||0),0);
+    const topV = snap.filter(c=>!c.es_relacionada && +c.vencido>0).sort((a,b)=>(+b.vencido)-(+a.vencido)).slice(0,8);
+    if(topV.length){
+      topV.forEach((c,i)=>{
+        const bg=i%2===0?"var(--blanco)":"var(--grisLight)";
+        const p = totVenc>0 ? (+c.vencido/totVenc*100) : 0;
+        html += '<tr><td style="padding:6px 10px;background:'+bg+';max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.cliente)+'</td>' +
+          '<td style="padding:6px 10px;background:'+bg+';text-align:right;font-weight:700;color:var(--rojo);font-variant-numeric:tabular-nums">'+_f$(c.vencido)+'</td>' +
+          '<td style="padding:6px 10px;background:'+bg+';text-align:right;color:var(--grisMed)">'+p.toFixed(0)+'%</td></tr>';
+      });
+    } else { html += '<tr><td colspan="3" style="text-align:center;color:var(--grisMed);padding:16px">Sin saldo vencido</td></tr>'; }
+    html += '</tbody></table></div></div>';
+  }
+
+  // ── Nota de fuente ──
+  html += '<div class="card" style="background:var(--grisLight);border:1px dashed var(--tq)">' +
+    '<div style="display:flex;align-items:center;gap:14px"><span style="font-size:24px">🦐</span>' +
+    '<div><div style="font-weight:700;color:var(--azul);font-size:13px">Fuente: Anexo Gerencial Semanal (TES-ANX-004 · hoja "Analisis CxC")</div>' +
+    '<div style="font-size:11px;color:var(--grisMed);margin-top:2px">Lukmar factura vía <b>liquidación proceso planta</b> (se ajusta según validación de libras/tallas del cliente empacadora y no reposa en Acosux hasta ser factura). Cada semana se carga el anexo en <b>+ Ingresar Datos → Cartera Clientes (CxC)</b>; actualiza el mes en curso de la serie. Las CxC relacionadas se excluyen de la cartera operativa.</div></div>' +
+    '<button onclick="irAIngreso(\'cartera-cxc\')" style="margin-left:auto;flex-shrink:0;padding:8px 14px;font-size:11px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📥 Cargar anexo</button>' +
+    '</div></div>';
+  return html;
+}
+
+function initChartsCarteraCxC(){
+  const meses12 = window._cxcMeses12||[];
+  const vis = meses12.filter(m=>m.tiene);
+  const ctxM = document.getElementById("cxc-mensual");
+  if(ctxM && vis.length){
+    charts["cxc-mensual"]=new Chart(ctxM,{
+      data:{labels:vis.map(m=>MESES_N[m.mes].slice(0,3)),datasets:[
+        {type:"bar",label:"Por vencer",data:vis.map(m=>m.pv),backgroundColor:"#16A97A",stack:"c",borderRadius:2},
+        {type:"bar",label:"Vencido",data:vis.map(m=>m.ve),backgroundColor:"#E03355",stack:"c",borderRadius:2},
+        {type:"bar",label:"Legal",data:vis.map(m=>m.le),backgroundColor:"#8B0000",stack:"c",borderRadius:2},
+        {type:"line",label:"% Vencido",data:vis.map(m=>m.tot>0?m.ve/m.tot*100:0),yAxisID:"y1",borderColor:"#1A3756",borderWidth:2,pointRadius:3,pointBackgroundColor:"#1A3756",fill:false,tension:.2}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:"top",labels:{color:"#6B87A8",font:{family:"Open Sans",size:10},boxWidth:10}},
+          tooltip:{callbacks:{label:it=>{
+            const d=vis[it.dataIndex];
+            if(it.dataset.label==="% Vencido") return "% Vencido: "+(d.tot>0?(d.ve/d.tot*100).toFixed(1):"0")+"%";
+            return it.dataset.label+": $"+Math.round(it.parsed.y).toLocaleString("en-US");
+          }}}},
+        scales:{x:{stacked:true,ticks:{color:"#6B87A8",font:{size:11}},grid:{display:false}},
+          y:{stacked:true,ticks:{color:"#6B87A8",callback:v=>"$"+Math.round(v/1000)+"k"},grid:{color:"#E0E8F0"},beginAtZero:true},
+          y1:{position:"right",ticks:{color:"#1A3756",callback:v=>v+"%"},grid:{display:false},beginAtZero:true,max:100}}
+      }
+    });
+  }
+  // Antigüedad del vencido (snapshot)
+  const ctxA = document.getElementById("cxc-aging");
+  const cache = window._sbCache||{};
+  const empObj = (cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
+  const snapsEmp = (cache.fin_cxc_cartera||[]).filter(c=>c.id_empresa===empObj?.id);
+  const fechaSnap = [...new Set(snapsEmp.map(c=>c.fecha_informe))].sort().reverse()[0];
+  const snap = fechaSnap ? snapsEmp.filter(c=>c.fecha_informe===fechaSnap && !c.es_relacionada) : [];
+  if(ctxA && snap.length){
+    const buckets=[["1-7","v_1_7"],["8-15","v_8_15"],["16-30","v_16_30"],["31-45","v_31_45"],["45-180","v_45_180"],["181-360","v_181_360"],["+361","v_361"]];
+    const data = buckets.map(b=>snap.reduce((a,c)=>a+(+c[b[1]]||0),0));
+    const cols=["#F6C244","#F0A030","#F07000","#E85A2A","#E03355","#B02040","#8B0000"];
+    charts["cxc-aging"]=new Chart(ctxA,{type:"bar",
+      data:{labels:buckets.map(b=>b[0]+" d"),datasets:[{label:"Vencido",data,backgroundColor:cols,borderRadius:3}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:it=>"$"+Math.round(it.parsed.y).toLocaleString("en-US")}}},
+        scales:{x:{ticks:{color:"#6B87A8",font:{size:10}},grid:{display:false}},
+          y:{ticks:{color:"#6B87A8",callback:v=>"$"+Math.round(v/1000)+"k"},grid:{color:"#E0E8F0"},beginAtZero:true}}}
+    });
+  }
+}
+window.renderCarteraCxC = renderCarteraCxC;
+window.initChartsCarteraCxC = initChartsCarteraCxC;
+
+// ═══════════════════════════════════════════════════════════════
 // INGRESO DE DATOS
 // ═══════════════════════════════════════════════════════════════
 function setIngresoTab(tab){ ingresoTab=tab; renderContent(); }
@@ -5084,6 +5401,7 @@ function renderIngresoDatos(){
     {id:"presupuesto", icon:"📊", label:"Presupuesto Anual",    cat:"FIN",  gate:"Finanzas"},
     {id:"corrida",     icon:"💸", label:"Corrida de Pagos",     cat:"FIN",  gate:"Finanzas"},
     {id:"progpagos",   icon:"💰", label:"Programación de Pagos", cat:"FIN", gate:"Finanzas"},
+    {id:"cartera-cxc", icon:"📊", label:"Cartera Clientes (CxC)", cat:"FIN", gate:"Finanzas"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -5453,6 +5771,67 @@ function renderIngresoDatos(){
       '</div></div>' +
       '<div id="ppg-container" style="margin-top:14px"><div style="color:var(--grisMed);font-size:12px;padding:16px;text-align:center">⏳ Cargando...</div></div>';
     setTimeout(()=>{ try{ ppgCargar(); }catch(e){ console.error("[ppg]", e); } }, 60);
+
+  } else if(ingresoTab==="cartera-cxc"){
+    // ── Tab Cartera Clientes (CxC) — anexo gerencial semanal (TES-ANX-004) ──
+    // Fuente del TES-IND-002 Cartera Vencida (Lukmar camaronera). Se parsea la
+    // hoja "Analisis CxC" (detalle por empacadora + antigüedad).
+    const _f$c = v => "$"+Math.round(v||0).toLocaleString("en-US");
+    const empMapC = {}; (window._sbCache?.empresas||[]).forEach(e=>{ empMapC[e.id]=e.nombre; });
+    // Snapshots recientes (distinct fecha_informe en fin_cxc_cartera)
+    const snapAll = (window._sbCache?.fin_cxc_cartera||[]);
+    const porFecha = {};
+    snapAll.forEach(c=>{
+      const k = c.id_empresa+"|"+c.fecha_informe;
+      if(!porFecha[k]) porFecha[k]={id_empresa:c.id_empresa,fecha:c.fecha_informe,semana:c.semana,n:0,total:0,vencido:0};
+      if(!c.es_relacionada){ porFecha[k].total+=(+c.total||0); porFecha[k].vencido+=(+c.vencido||0); porFecha[k].n++; }
+    });
+    const recientes = Object.values(porFecha).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))).slice(0,12);
+    html += '<div class="ingreso-form">' +
+      '<div class="ingreso-form-title">📊 Cartera de Clientes (CxC) — Anexo Gerencial Semanal</div>' +
+      '<div class="ingreso-form-sub">Sube el Excel <b>TES-ANX-004 Análisis Cartera Gerencial</b> (.xls/.xlsx). El sistema lee la hoja ' +
+      '<b>Analisis CxC</b> (detalle por empacadora con antigüedad), calcula Por Vencer / Vencido / Legal excluyendo las CxC relacionadas, ' +
+      'y actualiza el mes en curso del indicador <b>TES-IND-002 Cartera Vencida</b>. Modelo camaronera: la fuente es este anexo porque las ' +
+      'liquidaciones de proceso planta no reposan en Acosux.</div>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label class="form-label">Empresa</label><select id="cxc-empresa" class="form-select">'+empOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Archivo Excel del anexo</label>' +
+      '<input type="file" id="cxc-archivo" accept=".xls,.xlsx" class="form-input" onchange="cxcLeerExcel()" style="padding:8px"/></div>' +
+      '</div>' +
+      '<div id="cxc-preview" style="display:none;margin-top:14px;padding:14px;background:#F8FAFC;border:1px solid var(--borde);border-radius:8px"></div>' +
+      '<div style="display:flex;gap:12px;align-items:center;margin-top:12px">' +
+      '<button class="submit-btn" id="cxc-btn-guardar" onclick="cxcGuardar()" disabled style="opacity:0.5">💾 Guardar Cartera</button>' +
+      '<span style="font-size:11px;color:var(--grisMed)">Sube el archivo para habilitar el guardado</span></div>' +
+      '</div>';
+    html += '<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimos anexos cargados</div>';
+    if(!recientes.length){
+      html += '<div style="font-size:12px;color:var(--grisMed)">Sin anexos aún · sube tu primer análisis de cartera</div>';
+    } else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">' +
+        '<thead><tr style="background:#F8FAFC;text-align:left">' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">EMPRESA</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700">CORTE</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">SEM</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">CLIENTES</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">CARTERA</th>' +
+        '<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">% VENC.</th>' +
+        '<th style="padding:8px"></th></tr></thead><tbody>';
+      recientes.forEach(r=>{
+        const pv = r.total>0 ? r.vencido/r.total*100 : 0;
+        const cp = pv<=40?"var(--verde)":pv<=55?"var(--amarillo)":"var(--rojo)";
+        html += '<tr style="border-bottom:1px solid var(--borde)">' +
+          '<td style="padding:8px">'+esc(empMapC[r.id_empresa]||"—")+'</td>' +
+          '<td style="padding:8px">'+(r.fecha?String(r.fecha).split("-").reverse().join("/"):"—")+'</td>' +
+          '<td style="padding:8px;text-align:center">'+(r.semana||"—")+'</td>' +
+          '<td style="padding:8px;text-align:center">'+r.n+'</td>' +
+          '<td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">'+_f$c(r.total)+'</td>' +
+          '<td style="padding:8px;text-align:right;font-weight:700;color:'+cp+'">'+pv.toFixed(1)+'%</td>' +
+          '<td style="padding:8px;text-align:right"><button onclick="cxcEliminar('+r.id_empresa+',\''+esc(r.fecha)+'\')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>';
 
   } else if(ingresoTab==="rrhh-rot"){
     // ── Tab Rotación · Listado de Empleados (modelo granular ACOSUX) ──
@@ -6377,6 +6756,259 @@ async function balanceEliminar(id){
   } catch(e){ showError("Error: "+e.message); }
 }
 window.balanceEliminar = balanceEliminar;
+
+// ═══════════════════════════════════════════════════════════════
+// TES-IND-002 CARTERA (CxC) — Parser del anexo "Analisis CxC" (TES-ANX-004)
+// Hoja por empacadora con buckets de antigüedad. Excluye relacionadas del
+// total de cartera. Alimenta fin_cxc_cartera (detalle) + fin_cxc_mensual (serie).
+// ═══════════════════════════════════════════════════════════════
+let _cxcPreview = null;
+
+function _cxcParseFecha(v){
+  // Devuelve "YYYY-MM-DD" desde Date | serial Excel | texto "DD de Mes, YYYY" | dd/mm/yyyy
+  if(v==null) return null;
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  if(typeof v==="number" && isFinite(v)){
+    const d = new Date(Math.round((v-25569)*86400*1000)); // serial Excel → epoch
+    return isNaN(d)?null:d.toISOString().slice(0,10);
+  }
+  const t = String(v).trim();
+  const MES={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,setiembre:9,octubre:10,noviembre:11,diciembre:12};
+  let m = t.match(/(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚáéíóúñ]+)[,\s]+(\d{4})/i);
+  if(m){ const mm=MES[m[2].toLowerCase()]; if(mm) return m[3]+"-"+String(mm).padStart(2,"0")+"-"+String(+m[1]).padStart(2,"0"); }
+  m = t.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if(m) return m[3]+"-"+String(+m[2]).padStart(2,"0")+"-"+String(+m[1]).padStart(2,"0");
+  m = t.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[0];
+  return null;
+}
+
+async function cxcLeerExcel(){
+  const fileEl = document.getElementById("cxc-archivo");
+  const previewEl = document.getElementById("cxc-preview");
+  const btn = document.getElementById("cxc-btn-guardar");
+  if(!fileEl?.files?.length) return;
+  const file = fileEl.files[0];
+  previewEl.style.display="block";
+  previewEl.innerHTML = '<div style="color:var(--grisMed);font-size:12px">⏳ Leyendo anexo...</div>';
+  _cxcPreview = null;
+  if(btn){ btn.disabled=true; btn.style.opacity="0.5"; }
+  try {
+    if(!window.XLSX){
+      await new Promise((res,rej)=>{
+        const s=document.createElement("script");
+        s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw";
+        s.crossOrigin="anonymous";
+        s.onload=res; s.onerror=()=>rej(new Error("No se pudo cargar SheetJS"));
+        document.head.appendChild(s);
+      });
+    }
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, {type:"array", cellDates:true});
+    // Buscar la hoja "Analisis CxC" (tolerante a acentos/mayúsculas)
+    const norm = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    let shName = wb.SheetNames.find(n=>norm(n).includes("analisis cxc") || norm(n).includes("analisis cx c"));
+    if(!shName) shName = wb.SheetNames.find(n=>norm(n).includes("cxc") || norm(n).includes("cartera"));
+    if(!shName){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ No se encontró la hoja "Analisis CxC" en el archivo.</div><div style="font-size:11px;color:var(--grisMed);margin-top:6px">Hojas disponibles: '+esc(wb.SheetNames.join(", "))+'</div>'; return; }
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[shName], {header:1, defval:null});
+
+    // Fecha del informe: fila con "Fecha Informe" → primer valor siguiente no vacío
+    let fecha=null;
+    for(const r of rows){
+      if(!r) continue;
+      const idx = r.findIndex(c=>norm(c).includes("fecha informe"));
+      if(idx>=0){ for(let j=idx+1;j<r.length;j++){ if(r[j]!=null && String(r[j]).trim()!==""){ fecha=_cxcParseFecha(r[j]); break; } } if(fecha) break; }
+    }
+
+    // Fila de encabezado: la que tiene "Cliente" en alguna columna
+    let hIdx=-1, c0=-1;
+    for(let i=0;i<rows.length;i++){
+      const r=rows[i]; if(!r) continue;
+      const j=r.findIndex(c=>norm(c).trim()==="cliente");
+      if(j>=0){ hIdx=i; c0=j; break; }
+    }
+    if(hIdx<0){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ El anexo no tiene el formato esperado (no se encontró la columna "Cliente").</div>'; return; }
+    const hdr = rows[hIdx];
+    if(!norm(hdr[c0+1]).includes("clasif")){
+      previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ El layout del anexo cambió: la columna junto a "Cliente" no es "Clasificación".</div><div style="font-size:11px;color:var(--grisMed);margin-top:6px">Se esperaba el formato TES-ANX-004. Revisa el archivo.</div>'; return;
+    }
+    const num = v => { const n=parseFloat(v); return isNaN(n)?0:n; };
+
+    // Offsets fijos del template TES-ANX-004 (relativos a "Cliente")
+    const O={clasif:1,credito:2,cupo:3,util:4,porVencer:6,b1:7,b2:8,b3:9,b4:10,b5:11,b6:12,b7:13,vencido:14,legal:16,total:17,rank:20};
+    const clientes=[];
+    for(let i=hIdx+1;i<rows.length;i++){
+      const r=rows[i]; if(!r) continue;
+      const nombre = String(r[c0]||"").trim();
+      if(!nombre) { // fila vacía: cortar si ya recogimos datos
+        if(clientes.length) break; else continue;
+      }
+      if(norm(nombre).startsWith("total general")) break;   // fila de totales → fin
+      if(nombre.startsWith("*")) break;            // nota al pie → fin
+      // OJO: hay empacadoras que empiezan con "TOTAL" (ej. TOTAL SEAFOOD); no cortar por eso.
+      const total = num(r[c0+O.total]);
+      const clasif = String(r[c0+O.clasif]||"").trim();
+      // fila válida: tiene clasificación o algún monto
+      if(!clasif && total===0 && num(r[c0+O.porVencer])===0 && num(r[c0+O.vencido])===0) continue;
+      clientes.push({
+        cliente:nombre, clasificacion:clasif||null,
+        es_relacionada: /relacionad/i.test(clasif),
+        credito: r[c0+O.credito]!=null?num(r[c0+O.credito]):null,
+        cupo: r[c0+O.cupo]!=null?num(r[c0+O.cupo]):null,
+        pct_utilizacion: r[c0+O.util]!=null?num(r[c0+O.util]):null,
+        por_vencer:num(r[c0+O.porVencer]),
+        v_1_7:num(r[c0+O.b1]), v_8_15:num(r[c0+O.b2]), v_16_30:num(r[c0+O.b3]),
+        v_31_45:num(r[c0+O.b4]), v_45_180:num(r[c0+O.b5]), v_181_360:num(r[c0+O.b6]), v_361:num(r[c0+O.b7]),
+        vencido:num(r[c0+O.vencido]), legal:num(r[c0+O.legal]), total,
+        ranking: r[c0+O.rank]!=null && !isNaN(parseInt(r[c0+O.rank])) ? parseInt(r[c0+O.rank]) : null
+      });
+    }
+    if(!clientes.length){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ No se detectaron filas de clientes en la hoja.</div>'; return; }
+    if(!fecha){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ No se encontró la "Fecha Informe" en el anexo.</div>'; return; }
+
+    // Validación estructural: total ≈ por_vencer + vencido + legal
+    const desc = clientes.filter(c=>Math.abs(c.total-(c.por_vencer+c.vencido+c.legal))>1.5).length;
+    if(desc > Math.max(2, clientes.length*0.3)){
+      previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ Las columnas no cuadran (Total ≠ Por vencer + Vencido + Legal en '+desc+' filas). El layout del anexo no coincide con TES-ANX-004.</div>'; return;
+    }
+
+    // Totales de cartera operativa (excluye relacionadas)
+    const op = clientes.filter(c=>!c.es_relacionada);
+    const T = {
+      por_vencer: op.reduce((s,c)=>s+c.por_vencer,0),
+      vencido:    op.reduce((s,c)=>s+c.vencido,0),
+      legal:      op.reduce((s,c)=>s+c.legal,0),
+    };
+    T.total = T.por_vencer+T.vencido+T.legal;
+    const rel = clientes.filter(c=>c.es_relacionada);
+    const relTot = rel.reduce((s,c)=>s+c.total,0);
+    const anio=parseInt(fecha.slice(0,4)), mes=parseInt(fecha.slice(5,7));
+    const semana=_isoWeek(new Date(fecha+"T12:00:00"));
+    const pctVenc = T.total>0 ? T.vencido/T.total*100 : 0;
+
+    _cxcPreview = {fecha, anio, mes, semana, clientes, T, archivo:file.name, nRel:rel.length};
+
+    const _f$ = v=>"$"+Math.round(v).toLocaleString("en-US");
+    previewEl.innerHTML =
+      '<div style="font-weight:700;color:var(--azul);margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="color:#16A97A">✓</span> Anexo leído correctamente · hoja "'+esc(shName)+'"</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;margin-bottom:10px">' +
+        '<div><b>Fecha informe:</b> '+esc(fecha.split("-").reverse().join("/"))+'</div>' +
+        '<div><b>Semana ISO:</b> '+semana+' · '+MESES_N[mes]+' '+anio+'</div>' +
+        '<div><b>Clientes:</b> '+op.length+' operativos'+(rel.length?' + '+rel.length+' relacionados':'')+'</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">' +
+        '<div style="background:#fff;border-radius:6px;padding:10px;border-left:4px solid #16A97A"><div style="font-size:10px;color:var(--grisMed);font-weight:700">POR VENCER</div><div style="font-size:16px;font-weight:800;color:#16A97A">'+_f$(T.por_vencer)+'</div></div>' +
+        '<div style="background:#fff;border-radius:6px;padding:10px;border-left:4px solid #E03355"><div style="font-size:10px;color:var(--grisMed);font-weight:700">VENCIDO</div><div style="font-size:16px;font-weight:800;color:#E03355">'+_f$(T.vencido)+'</div></div>' +
+        '<div style="background:#fff;border-radius:6px;padding:10px;border-left:4px solid #8B0000"><div style="font-size:10px;color:var(--grisMed);font-weight:700">LEGAL</div><div style="font-size:16px;font-weight:800;color:#8B0000">'+_f$(T.legal)+'</div></div>' +
+        '<div style="background:#fff;border-radius:6px;padding:10px;border-left:4px solid #1A3756"><div style="font-size:10px;color:var(--grisMed);font-weight:700">CARTERA TOTAL</div><div style="font-size:16px;font-weight:800;color:#1A3756">'+_f$(T.total)+'</div></div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--grisMed)">% Cartera vencida: <b style="color:'+(pctVenc<=40?"#16A97A":pctVenc<=55?"#D4A012":"#E03355")+'">'+pctVenc.toFixed(1)+'%</b>' +
+        (relTot>0?' · Relacionadas excluidas: <b>'+_f$(relTot)+'</b> ('+rel.map(c=>esc(c.cliente)).join(", ")+')':'') +
+        '</div>' +
+      '<div style="font-size:11px;color:var(--grisMed);margin-top:8px">Al guardar se actualiza <b>'+MESES_N[mes]+' '+anio+'</b> de la serie del indicador y se reemplaza el detalle de este corte.</div>';
+    if(btn){ btn.disabled=false; btn.style.opacity="1"; }
+  } catch(e){
+    console.error("[cxcLeerExcel]", e);
+    previewEl.innerHTML='<div style="color:#E03355">❌ Error al leer el anexo: '+esc(e.message)+'</div>';
+  }
+}
+window.cxcLeerExcel = cxcLeerExcel;
+
+async function cxcGuardar(){
+  try {
+    if(!_cxcPreview){ showError("Primero sube y valida un anexo."); return; }
+    const idEmpresa = parseInt(gVal("cxc-empresa"));
+    if(!idEmpresa){ showError("Selecciona la empresa."); return; }
+    const cache = window._sbCache||{};
+    const p = _cxcPreview;
+    const usuario = (typeof sesion!=="undefined" && sesion?.email) || null;
+    const nowIso = new Date().toISOString();
+
+    // ¿Ya existe un corte para (empresa, fecha)? → confirmar reemplazo
+    const yaExiste = (cache.fin_cxc_cartera||[]).some(c=>c.id_empresa===idEmpresa && c.fecha_informe===p.fecha);
+    if(yaExiste){
+      const ok = await new Promise(resolve=>{
+        openModal('<div class="modal-box"><button class="modal-close" onclick="window._cxcCancel()">✕</button>' +
+          '<div class="modal-title" style="color:#D4A012">⚠️ Corte ya cargado</div>' +
+          '<div class="modal-sub" style="margin-bottom:14px">Ya existe un anexo para este corte</div>' +
+          '<div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px">' +
+          '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--grisMed);font-weight:600">Fecha informe</span><span style="color:var(--azul);font-weight:700">'+esc(p.fecha.split("-").reverse().join("/"))+'</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span style="color:var(--grisMed);font-weight:600">Mes del indicador</span><span style="color:var(--azul);font-weight:700">'+MESES_N[p.mes]+' '+p.anio+'</span></div></div>' +
+          '<div style="font-size:12px;color:var(--grisMed);margin-bottom:18px">Si continúas, el detalle de este corte será <b>reemplazado</b> con el archivo cargado.</div>' +
+          '<div class="modal-footer"><button class="btn-cancel" onclick="window._cxcCancel()">Cancelar</button><button class="btn-save" onclick="window._cxcConfirm()">🔄 Reemplazar</button></div></div>');
+        window._cxcCancel=()=>{closeModal();resolve(false);};
+        window._cxcConfirm=()=>{closeModal();resolve(true);};
+      });
+      if(!ok) return;
+      // Borrar detalle previo de ese corte
+      const rDel = await fetch(SUPA_URL+"/rest/v1/fin_cxc_cartera?id_empresa=eq."+idEmpresa+"&fecha_informe=eq."+p.fecha, {
+        method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY}});
+      if(!rDel.ok) throw new Error("No se pudo limpiar el corte anterior (DELETE "+rDel.status+")");
+    }
+
+    // Insertar detalle por cliente (lotes de 200)
+    const filas = p.clientes.map(c=>({
+      id_empresa:idEmpresa, anio:p.anio, mes:p.mes, semana:p.semana, fecha_informe:p.fecha,
+      cliente:c.cliente, clasificacion:c.clasificacion, es_relacionada:c.es_relacionada,
+      credito:c.credito, cupo:c.cupo, pct_utilizacion:c.pct_utilizacion,
+      por_vencer:c.por_vencer, v_1_7:c.v_1_7, v_8_15:c.v_8_15, v_16_30:c.v_16_30, v_31_45:c.v_31_45,
+      v_45_180:c.v_45_180, v_181_360:c.v_181_360, v_361:c.v_361,
+      vencido:c.vencido, legal:c.legal, total:c.total, ranking:c.ranking,
+      cargado_por:usuario, cargado_en:nowIso
+    }));
+    for(let i=0;i<filas.length;i+=200){ await sbInsert("fin_cxc_cartera", filas.slice(i,i+200)); }
+
+    // Upsert de la serie mensual (el anexo pisa el mes en curso)
+    const mPayload = {
+      id_empresa:idEmpresa, anio:p.anio, mes:p.mes,
+      por_vencer:p.T.por_vencer, vencido:p.T.vencido, legal:p.T.legal, total:p.T.total,
+      fuente:"anexo_semanal", fecha_informe:p.fecha, semana:p.semana,
+      archivo_nombre:p.archivo, cargado_por:usuario, actualizado_en:nowIso
+    };
+    const exM = (cache.fin_cxc_mensual||[]).find(m=>m.id_empresa===idEmpresa && m.anio===p.anio && m.mes===p.mes);
+    if(exM) await sbUpdate("fin_cxc_mensual", mPayload, "id", exM.id);
+    else { mPayload.creado_en=nowIso; await sbInsert("fin_cxc_mensual", mPayload); }
+
+    // Refrescar cache
+    window._sbCache.fin_cxc_cartera = await sbQuery("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc", limit:5000}).catch(()=>[]);
+    window._sbCache.fin_cxc_mensual = await sbQuery("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
+    const msg = "✓ Cartera guardada · "+MESES_N[p.mes]+" "+p.anio+" ("+p.clientes.length+" clientes)";
+    _cxcPreview=null;
+    (typeof showSuccess==="function")?showSuccess(msg):alert(msg);
+    renderContent();
+  } catch(e){
+    console.error("[cxcGuardar]", e);
+    showError("Error al guardar la cartera: "+(e?.message||e));
+  }
+}
+window.cxcGuardar = cxcGuardar;
+
+async function cxcEliminar(idEmpresa, fecha){
+  const empNom = (window._sbCache?.empresas||[]).find(e=>e.id===idEmpresa)?.nombre||"—";
+  const ok = await new Promise(resolve=>{
+    openModal('<div class="modal-box"><button class="modal-close" onclick="window._cxcDelCancel()">✕</button>' +
+      '<div class="modal-title" style="color:#E03355">🗑 Eliminar anexo de cartera</div>' +
+      '<div class="modal-sub" style="margin-bottom:14px">Se borra el detalle por cliente de este corte</div>' +
+      '<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px;margin-bottom:18px;font-size:12px">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--grisMed);font-weight:600">Empresa</span><span style="color:var(--azul);font-weight:700">'+esc(empNom)+'</span></div>' +
+      '<div style="display:flex;justify-content:space-between"><span style="color:var(--grisMed);font-weight:600">Corte</span><span style="color:var(--azul);font-weight:700">'+esc(String(fecha).split("-").reverse().join("/"))+'</span></div></div>' +
+      '<div style="font-size:11px;color:var(--grisMed);margin-bottom:18px">La serie mensual del indicador NO se recalcula automáticamente; volvé a cargar un anexo del mes si necesitás actualizar el mes.</div>' +
+      '<div class="modal-footer"><button class="btn-cancel" onclick="window._cxcDelCancel()">Cancelar</button><button class="btn-save" style="background:#E03355" onclick="window._cxcDelConfirm()">🗑 Eliminar</button></div></div>');
+    window._cxcDelCancel=()=>{closeModal();resolve(false);};
+    window._cxcDelConfirm=()=>{closeModal();resolve(true);};
+  });
+  if(!ok) return;
+  try {
+    const r = await fetch(SUPA_URL+"/rest/v1/fin_cxc_cartera?id_empresa=eq."+idEmpresa+"&fecha_informe=eq."+fecha, {
+      method:"DELETE", headers:{"apikey":SUPA_KEY,"Authorization":"Bearer "+SUPA_KEY}});
+    if(!r.ok) throw new Error("DELETE "+r.status);
+    window._sbCache.fin_cxc_cartera = await sbQuery("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc", limit:5000}).catch(()=>[]);
+    showSuccess("✓ Anexo eliminado");
+    renderContent();
+  } catch(e){ console.error("[cxcEliminar]", e); showError("Error: "+e.message); }
+}
+window.cxcEliminar = cxcEliminar;
 
 // ═══════════════════════════════════════════════════════════════
 // CORRIDA DE PAGOS — Parser del reporte "Aprobar Pagos" (Acosux)
