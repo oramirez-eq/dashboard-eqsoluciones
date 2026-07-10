@@ -1390,13 +1390,23 @@ function filtrarRows(rows, sql, params){
   if(!whereMatch) return rows;
   let cond = whereMatch[1];
   let pIdx = 0;
-  const condFinal = cond.replace(/\?/g, ()=>{
+  let condFinal = cond.replace(/\?/g, ()=>{
     const v = params[pIdx++];
     if(v === null || v === undefined) return "NULL";
     if(typeof v === "string") return "'"+v.replace(/'/g,"''")+"'";
     return String(v);
   });
-  
+
+  // Resolver subqueries (SELECT id FROM empresas/indicadores WHERE codigo='X')
+  // a su id, para que la comparación simple id_empresa=<id> sí se aplique.
+  // Sin esto, filtrarRows no reconocía el subquery y NO filtraba por empresa
+  // (bug: mostraba datos de otra empresa — corregido 2026-07-10).
+  const _cache = window._sbCache || {};
+  condFinal = condFinal.replace(/\(SELECT id FROM empresas WHERE codigo='([^']*)'\)/gi,
+    (m, cod)=>{ const e=(_cache.empresas||[]).find(x=>x.codigo===cod); return e? String(e.id) : "-1"; });
+  condFinal = condFinal.replace(/\(SELECT id FROM indicadores WHERE codigo='([^']*)'\)/gi,
+    (m, cod)=>{ const i=(_cache.indicadores||[]).find(x=>x.codigo===cod); return i? String(i.id) : "-1"; });
+
   return rows.filter(row=>{
     try {
       const parts = condFinal.split(/\s+AND\s+/i);
@@ -1461,13 +1471,15 @@ function queryCacheSQL(sql, params){
     let rows = [...(window._sbCache.actividades_tic||[])];
     return applyFilters(rows, s, params, ["id","id_empresa","numero","trimestre","mes_registro","prioridad","tema","descripcion","duracion_dias","fecha_inicio","fecha_fin","responsable","estado","avance_pct","observaciones","ultima_actualizacion","creado_en"]);
   }
-  // Empresas
-  if(s.includes("FROM empresas")){
+  // Empresas — SOLO si es la tabla PRINCIPAL (evita que un subquery
+  //   `(SELECT id FROM empresas WHERE codigo=?)` intercepte consultas de
+  //   pagos_proveedores/cuentas_por_pagar y devuelva datos de otra empresa).
+  if(table==="empresas"){
     let rows = [...(window._sbCache.empresas||[])];
     return applyFilters(rows, s, params, ["id","codigo","nombre","ruc","ciudad","pais","activo"]);
   }
-  // Indicadores
-  if(s.includes("FROM indicadores")){
+  // Indicadores — igual: solo si es la tabla principal (se usa en subqueries)
+  if(table==="indicadores"){
     let rows = [...(window._sbCache.indicadores||[])];
     return applyFilters(rows, s, params, ["id","codigo","nombre","descripcion","unidad","meta_default","tipo_meta","id_area","activo"]);
   }
@@ -5311,8 +5323,10 @@ function renderIngresoDatos(){
     // ── Tab Corrida de Pagos — sube el reporte "Aprobar Pagos" de Acosux ──
     // IMPORTANTE: el Excel debe exportarse AL MOMENTO de la corrida, con la
     // aprobación real marcada (Valor aprobado refleja lo que se paga hoy).
+    // Histórico SOLO de la empresa activa (antes mostraba las de todas → confundía)
+    const _empActCorr = (window._sbCache?.empresas||[]).find(e=>e.codigo===filtros.empresa);
     const histCP = (window._sbCache?.pagos_proveedores||[])
-      .filter(p => p.fecha_corte) // solo corridas nuevas (las legacy no tienen fecha_corte)
+      .filter(p => p.fecha_corte && p.id_empresa===_empActCorr?.id) // corridas nuevas de ESTA empresa
       .sort((a,b)=>(b.fecha_corte||"").localeCompare(a.fecha_corte||""))
       .slice(0,10);
     const empMapC = {};
