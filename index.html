@@ -2074,29 +2074,33 @@ function renderContent(){
     const finBodyDiv = document.getElementById("fin-body");
     finTabsDiv.style.cssText = "display:flex;gap:8px;margin-bottom:16px";
     (function(){
-      // Tabs base siempre visibles
+      // Finanzas muestra SOLO TES-IND-001 (Pago Proveedores) y TES-IND-002
+      // (Cartera Vencida). El resto de indicadores queda oculto (decision Oscar
+      // 2026-07-10). Para reactivarlos: FIN_SOLO_1_Y_2 = false.
+      const FIN_SOLO_1_Y_2 = true;
       const tabsBase = [
-        ["pagos","\uD83D\uDCC6 FIN-IND-001 Pago Proveedores"],
-        ["cobro","\uD83D\uDCB3 FIN-IND-004 Efectividad de Cobro"],
+        ["pagos","📆 FIN-IND-001 Pago Proveedores"],
       ];
-      // TES-IND-002 Cartera Vencida (CxC) \u2014 empresas con modelo anexo gerencial
-      // (Lukmar camaronera: liquidaci\u00F3n proceso planta fuera de Acosux). Ampliable.
+      if(!FIN_SOLO_1_Y_2) tabsBase.push(["cobro","💳 FIN-IND-004 Efectividad de Cobro"]);
+      // TES-IND-002 Cartera Vencida (CxC) - empresas con modelo anexo gerencial
+      // (Lukmar camaronera: liquidacion proceso planta fuera de Acosux). Ampliable.
       const CXC_EMPRESAS = ["LUKMAR"];
-      if(CXC_EMPRESAS.includes(filtros.empresa)) tabsBase.push(["cartera_cxc","\uD83D\uDCCA TES-IND-002 Cartera Vencida"]);
-      if(finTab==="cartera_cxc" && !CXC_EMPRESAS.includes(filtros.empresa)) finTab="pagos";
+      if(CXC_EMPRESAS.includes(filtros.empresa)) tabsBase.push(["cartera_cxc","📊 TES-IND-002 Cartera Vencida"]);
       // FIN-IND-005 solo si la empresa activa tiene config API en BD
       const cache2 = window._sbCache||{};
       const empActiva = (cache2.empresas||[]).find(e=>e.codigo===filtros.empresa);
       const tieneApiConfig = (cache2.empresa_api_config||[]).some(
         r=>r.id_empresa===empActiva?.id && r.activo
       );
-      if(tieneApiConfig) tabsBase.push(["ventas","📈 FIN-IND-005 Ventas"])
+      if(!FIN_SOLO_1_Y_2){
+        if(tieneApiConfig) tabsBase.push(["ventas","📈 FIN-IND-005 Ventas"]);
         tabsBase.push(["formas_pago","💳 FIN-IND-006 Formas de Pago"]);
         tabsBase.push(["descuentos","🏷️ FIN-IND-007 Descuentos"]);
         tabsBase.push(["local_vendedor","🏪 FIN-IND-008 Local/Vendedor"]);
         tabsBase.push(["diario","📊 FIN-IND-009 Financiero Diario"]);
-      // Si finTab es ventas pero la empresa no tiene config, volver a pagos
-      if(finTab==="ventas" && !tieneApiConfig) finTab="pagos";
+      }
+      // Si el tab activo ya no esta disponible (oculto o empresa sin CxC), volver a pagos
+      if(!tabsBase.some(function(t){return t[0]===finTab;})) finTab="pagos";
       tabsBase.forEach(function(pair){
       var id=pair[0], label=pair[1];
       var btn=document.createElement("button");
