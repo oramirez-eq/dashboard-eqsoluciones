@@ -6553,6 +6553,8 @@ async function corridaTraerContifico(){
       if(!s) return null; const [d,m,y]=String(s).split("/");
       return (y&&m&&d) ? `${y}-${m.padStart(2,"0")}-${d.padStart(2,"0")}` : null;
     };
+    // Período de la corrida (para las filas nuevas y el agregado)
+    const anio = corte.getFullYear(), mes = corte.getMonth()+1, semana = _isoWeek(corte);
     // ── UPSERT-PRESERVE sobre la corrida VIVA (mismo algoritmo que el sync
     //    diario): no pisa la programación de Tesorería. ─────────────────────
     const estadoDe = (vAprob, dv) => {
