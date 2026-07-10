@@ -149,6 +149,11 @@
     .metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
     .metric-card{background:var(--blanco);border:1px solid var(--borde);border-radius:6px;padding:18px 22px;border-left:4px solid var(--tq);box-shadow:0 1px 4px rgba(26,55,86,.05)}
     .metric-label{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:var(--grisMed);margin-bottom:6px}
+    /* Tooltip propio (el title nativo tarda y no responde al click) */
+    .eq-tip{position:relative}
+    .eq-tip>.eq-tip-b{visibility:hidden;opacity:0;position:absolute;z-index:9999;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#1A3756;color:#fff;padding:9px 12px;border-radius:7px;font-size:11px;font-weight:500;letter-spacing:normal;text-transform:none;width:230px;line-height:1.45;box-shadow:0 6px 22px rgba(0,0,0,.30);transition:opacity .12s;text-align:left;pointer-events:none}
+    .eq-tip>.eq-tip-b::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:#1A3756}
+    .eq-tip:hover>.eq-tip-b{visibility:visible;opacity:1}
     .metric-value{font-size:42px;font-weight:800;font-family:'Raleway',sans-serif;line-height:1}
 
     /* SALUD */
@@ -4845,10 +4850,11 @@ function renderFinanzas(){
    {l:"Objetivo",v:objetivoPP.toFixed(0)+"%",s:"meta del indicador",c:"var(--azul)",
      info:"Meta de cumplimiento configurada para "+esc(_empObjF?.nombre||emp)+"."}
   ].forEach(m=>{
-    html += '<div class="metric-card" style="padding:14px 18px;cursor:help" title="'+esc(m.info)+'">' +
-      '<div class="metric-label">'+m.l+' <span style="opacity:.45;font-size:10px">ⓘ</span></div>' +
+    html += '<div class="metric-card eq-tip" style="padding:14px 18px;cursor:help">' +
+      '<div class="metric-label">'+m.l+' <span style="opacity:.5;font-size:11px">ⓘ</span></div>' +
       '<div style="font-size:26px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div>' +
       (m.s?'<div style="font-size:12px;font-weight:700;color:'+m.c+';opacity:.85;margin-top:2px;font-variant-numeric:tabular-nums">'+m.s+'</div>':'') +
+      '<span class="eq-tip-b">'+esc(m.info)+'</span>' +
       '</div>';
   });
   html += '</div></div>';
