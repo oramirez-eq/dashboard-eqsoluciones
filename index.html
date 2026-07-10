@@ -4807,32 +4807,46 @@ function renderFinanzas(){
     return html;
   }
 
+  // Montos $ y vigentes del período (el $ es tan importante como el conteo)
+  const mPagado$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_cumplio||0),0);
+  const mImpago$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_no_cumplio||0),0);
+  const mVigente$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_vigente||0),0);
+  const nVigTot = pagos.reduce((s,r)=>s+(r.n_vigentes||0),0);
+  const _f$ = v => "$"+Math.round(v).toLocaleString("en-US");
+  // ¿La vista es la corrida EN CURSO (Superhealthy) o el histórico cerrado?
+  const _esVistaCorrida = pagos.some(p=>p.fecha_corte);
+  const _perLbl = _esVistaCorrida ? "Corrida en curso" : (mesF>0?MESES_N[mesF]+" "+anioF:"Año "+anioF);
+
   // KPI + métricas
   html += '<div style="display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:16px">';
   html += '<div class="card" style="border-left:4px solid '+c+';text-align:center;padding:24px 18px">' +
-    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--grisMed);margin-bottom:6px">TES-IND-001</div>' +
-    '<div style="font-size:13px;font-weight:700;color:var(--azul);margin-bottom:10px">Cumplimiento Pago Proveedores</div>' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--grisMed);margin-bottom:6px">TES-IND-001 · '+esc(_perLbl)+'</div>' +
+    '<div style="font-size:13px;font-weight:700;color:var(--azul);margin-bottom:2px">Cumplimiento Pago Proveedores</div>' +
+    '<div style="font-size:10px;color:var(--grisMed);margin-bottom:10px;line-height:1.35">% de facturas <b>vencidas</b> que se <b>pagaron</b> (a tiempo o con atraso).<br>Las vigentes (no vencidas) se excluyen.</div>' +
     '<div style="font-size:48px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+c+';line-height:1">'+valor.toFixed(1)+'%</div>' +
     '<div style="font-size:12px;color:var(--grisMed);margin:8px 0">meta: '+meta+'%</div>' +
     '<div style="height:6px;background:var(--grisLight);border-radius:3px;overflow:hidden;margin:8px 0">' +
     '<div style="width:'+Math.min(valor/meta*100,100)+'%;height:100%;background:'+c+'"></div></div>' +
     '<span class="kpi-badge" style="background:'+c+'18;color:'+c+';border:1px solid '+c+'40;font-size:11px;padding:4px 12px">'+(sem==="verde"?"✓ EN META":sem==="amarillo"?"⚡ ALERTA":"✕ CRÍTICO")+'</span>' +
     '</div>';
-  // Montos $ de las corridas del período (el $ es tan importante como el conteo)
-  const mPagado$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_cumplio||0),0);
-  const mImpago$ = pagos.reduce((s,r)=>s+parseFloat(r.monto_no_cumplio||0),0);
-  const _cxpRows = (window._sbCache?.cuentas_por_pagar||[]).filter(x=>x.id_empresa===_empObjF?.id);
-  const cxpTot$ = _cxpRows.reduce((s,x)=>s+parseFloat(x.valor_pagar||0),0);
-  const cxpVen$ = _cxpRows.filter(x=>x.estado_cartera!=="POR VENCER").reduce((s,x)=>s+parseFloat(x.valor_pagar||0),0);
-  const _f$ = v => "$"+Math.round(v).toLocaleString("en-US");
   html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">';
-  [{l:"Total Transacciones",v:totalTxn.toLocaleString(),s:_f$(mPagado$+mImpago$),c:"var(--tq)"},
-   {l:"Cumplieron",v:totalCumpl.toLocaleString(),s:_f$(mPagado$)+" pagado",c:"var(--verde)"},
-   {l:"No Cumplieron",v:totalNoCumpl.toLocaleString(),s:_f$(mImpago$)+" impago",c:"var(--rojo)"},
-   {l:"Facturas en Cartera",v:totalCuentas.toLocaleString(),s:cxpTot$>0?_f$(cxpTot$):null,c:"var(--azul)"},
-   {l:"Facturas Vencidas",v:cuentasVenc.toLocaleString(),s:cxpVen$>0?_f$(cxpVen$):null,c:"var(--rojo)"},
-   {l:"Por Vencer",v:(totalCuentas-cuentasVenc).toLocaleString(),s:cxpTot$>0?_f$(cxpTot$-cxpVen$):null,c:"var(--verde)"}].forEach(m=>{
-    html += '<div class="metric-card" style="padding:14px 18px"><div class="metric-label">'+m.l+'</div>' +
+  [{l:"Total Evaluadas",v:totalTxn.toLocaleString("en-US"),s:_f$(mPagado$+mImpago$),c:"var(--tq)",
+     info:"Facturas que cuentan para el % ("+esc(_perLbl)+"): vencidas + pagadas. Las vigentes NO entran."},
+   {l:"Cumplieron",v:totalCumpl.toLocaleString("en-US"),s:_f$(mPagado$)+" pagado",c:"var(--verde)",
+     info:"Facturas pagadas a tiempo o con atraso ("+esc(_perLbl)+")."},
+   {l:"No Cumplieron",v:totalNoCumpl.toLocaleString("en-US"),s:_f$(mImpago$)+" impago",c:"var(--rojo)",
+     info:"Facturas vencidas que NO se pagaron ("+esc(_perLbl)+")."},
+   {l:(_esVistaCorrida?"Facturas en la corrida":"Semanas Evaluadas"),
+     v:(_esVistaCorrida?(totalTxn+nVigTot):pagos.length).toLocaleString("en-US"),
+     s:_perLbl,c:"var(--azul)",
+     info:_esVistaCorrida?"Total de facturas de la corrida (incluye vigentes).":"Cantidad de corridas semanales cargadas en "+esc(_perLbl)+"."},
+   {l:"Vigentes (excluidas)",v:nVigTot.toLocaleString("en-US"),s:mVigente$>0?_f$(mVigente$):null,c:"var(--grisMed)",
+     info:"Facturas aún no vencidas. NO cuentan para el % de cumplimiento"+(_esVistaCorrida?"":" (acumulado del período).")},
+   {l:"Objetivo",v:objetivoPP.toFixed(0)+"%",s:"meta del indicador",c:"var(--azul)",
+     info:"Meta de cumplimiento configurada para "+esc(_empObjF?.nombre||emp)+"."}
+  ].forEach(m=>{
+    html += '<div class="metric-card" style="padding:14px 18px;cursor:help" title="'+esc(m.info)+'">' +
+      '<div class="metric-label">'+m.l+' <span style="opacity:.45;font-size:10px">ⓘ</span></div>' +
       '<div style="font-size:26px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div>' +
       (m.s?'<div style="font-size:12px;font-weight:700;color:'+m.c+';opacity:.85;margin-top:2px;font-variant-numeric:tabular-nums">'+m.s+'</div>':'') +
       '</div>';
@@ -4895,38 +4909,47 @@ function renderFinanzas(){
     html += '</div></div>';
   })();
 
-  // Tabla + barras
+  // Tabla + barras — alto compartido para que la tabla y el gráfico queden a la par
+  const _tblH = 300; // ≈ 10 filas visibles; el resto con scroll
+  // Orden descendente (última semana primero); el TOTAL va como pie fijo
+  const pagosTabla = pagos.slice().sort((a,b)=>(b.semana||0)-(a.semana||0));
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">';
-  html += '<div class="card"><div class="section-title">Total de Transacciones por Período'+(pbSemanalPP>0?' · PB semanal '+pbSemanalPP:'')+'</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>';
+  html += '<div class="card"><div class="section-title">Total de Transacciones por Período'+(pbSemanalPP>0?' · PB semanal '+pbSemanalPP:'')+'</div>';
+  html += '<div style="max-height:'+_tblH+'px;overflow-y:auto;border:1px solid var(--borde);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr>';
   ["Período","Cumplió","No Cumplió","Total","% Cumpl.","Objetivo"].forEach(h=>{
-    html += '<th style="background:var(--azul);color:#fff;padding:7px 8px;text-align:center;font-size:10px;white-space:nowrap">'+h+'</th>';
+    html += '<th style="position:sticky;top:0;z-index:2;background:var(--azul);color:#fff;padding:7px 8px;text-align:center;font-size:10px;white-space:nowrap">'+h+'</th>';
   });
   html += '</tr></thead><tbody>';
-  if(pagos.length){
-    pagos.forEach((r,i)=>{
+  if(pagosTabla.length){
+    pagosTabla.forEach((r,i)=>{
       const bg=i%2===0?"var(--blanco)":"var(--grisLight)";
       const cp=r.pct_cumplimiento>=95?"var(--verde)":r.pct_cumplimiento>=80?"var(--amarillo)":"var(--rojo)";
       const clickDocs = r.fecha_corte
         ? ' onclick="corridaVerDocs('+(_empObjF?.id||0)+',\''+esc(r.fecha_corte)+'\')" style="cursor:pointer" title="Click para ver los documentos de esta corrida — inactivar o editar valor a pagar"'
         : '';
       html += '<tr'+clickDocs+'><td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700;color:'+(r.fecha_corte?'var(--tq)':'inherit')+'">'+esc(r.periodo_label||"—")+(r.fecha_corte?' 📄':'')+'</td>' +
-        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--verde);font-weight:600">'+(r.cumplieron||0).toLocaleString()+'</td>' +
-        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--rojo);font-weight:600">'+(r.no_cumplieron||0).toLocaleString()+'</td>' +
-        '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700">'+(r.total||0).toLocaleString()+'</td>' +
+        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--verde);font-weight:600">'+(r.cumplieron||0).toLocaleString("en-US")+'</td>' +
+        '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--rojo);font-weight:600">'+(r.no_cumplieron||0).toLocaleString("en-US")+'</td>' +
+        '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:700">'+(r.total||0).toLocaleString("en-US")+'</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';font-weight:800;color:'+cp+'">'+(r.pct_cumplimiento||0).toFixed(1)+'%</td>' +
         '<td style="padding:7px 8px;text-align:center;background:'+bg+';color:var(--grisMed)">'+objetivoPP.toFixed(0)+'%</td></tr>';
     });
-    html += '<tr style="background:var(--azul)"><td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">TOTAL</td>' +
-      '<td style="padding:7px 8px;color:#6ECE8E;font-weight:800;text-align:center">'+totalCumpl.toLocaleString()+'</td>' +
-      '<td style="padding:7px 8px;color:#ff9999;font-weight:800;text-align:center">'+totalNoCumpl.toLocaleString()+'</td>' +
-      '<td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">'+totalTxn.toLocaleString()+'</td>' +
-      '<td style="padding:7px 8px;color:'+c+';font-weight:800;text-align:center">'+valor.toFixed(1)+'%</td>' +
-      '<td style="padding:7px 8px;color:#aad4ff;text-align:center">'+objetivoPP.toFixed(0)+'%</td></tr>';
   } else {
     html += '<tr><td colspan="6" style="text-align:center;color:var(--grisMed);padding:20px">Sin datos en el período</td></tr>';
   }
-  html += '</tbody></table></div>';
-  html += '<div class="card"><div class="section-title">Distribución — Cumplió / No Cumplió</div><div style="height:280px;position:relative"><canvas id="bar-pagos"></canvas></div></div>';
+  html += '</tbody>';
+  if(pagosTabla.length){
+    html += '<tfoot><tr style="position:sticky;bottom:0;z-index:2;background:var(--azul)">' +
+      '<td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">TOTAL</td>' +
+      '<td style="padding:7px 8px;color:#6ECE8E;font-weight:800;text-align:center">'+totalCumpl.toLocaleString("en-US")+'</td>' +
+      '<td style="padding:7px 8px;color:#ff9999;font-weight:800;text-align:center">'+totalNoCumpl.toLocaleString("en-US")+'</td>' +
+      '<td style="padding:7px 8px;color:#fff;font-weight:800;text-align:center">'+totalTxn.toLocaleString("en-US")+'</td>' +
+      '<td style="padding:7px 8px;color:'+c+';font-weight:800;text-align:center">'+valor.toFixed(1)+'%</td>' +
+      '<td style="padding:7px 8px;color:#aad4ff;text-align:center">'+objetivoPP.toFixed(0)+'%</td></tr></tfoot>';
+  }
+  html += '</table></div></div>';
+  html += '<div class="card"><div class="section-title">Distribución — Cumplió / No Cumplió</div><div style="height:'+_tblH+'px;position:relative"><canvas id="bar-pagos"></canvas></div></div>';
   html += '</div>';
 
   // Cartera + top proveedores
