@@ -16809,4 +16809,39 @@ window.fin009MarcarPagado = fin009MarcarPagado;
 window.fin009EliminarCxP = fin009EliminarCxP;
 
 
-</script></body></html>
+</script>
+    <!-- ═══════════════════════════════════════════════════════════════════
+  EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB (pegar antes de </body>)
+  En el repo eq-suite (rama supabase), abre index.html y pega este bloque
+  justo antes de la etiqueta </body>, DESPUÉS del script donde se crea el
+  cliente de Supabase.
+  IMPORTANTE: si tu cliente de Supabase no se llama "supabase", cambia la
+  línea marcada con  >>>  por el nombre real de tu variable
+  (p. ej. sb, supabaseClient, client).
+═══════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  try {
+    var h = location.hash || '';
+    if (h.indexOf('eq_handoff=1') === -1) return;
+    var params = new URLSearchParams(h.slice(1));
+    var at = params.get('at');
+    var rt = params.get('rt');
+    // Borra los tokens de la URL y del historial inmediatamente
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!at) return;
+    var trySet = function (attempts) {
+      var client = window.supabase && window.supabase.auth ? window.supabase : null; // >>> cambia aquí si tu variable se llama distinto
+      if (client) {
+        client.auth.setSession({ access_token: at, refresh_token: rt || '' })
+          .then(function () { at = rt = null; location.reload(); })
+          .catch(function (e) { console.warn('EQ handoff:', e); });
+      } else if (attempts > 0) {
+        setTimeout(function () { trySet(attempts - 1); }, 300);
+      }
+    };
+    trySet(20);
+  } catch (e) { console.warn('EQ handoff error:', e); }
+})();
+</script>
+    </body></html>
