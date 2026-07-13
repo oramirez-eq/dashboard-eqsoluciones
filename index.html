@@ -16810,14 +16810,15 @@ window.fin009EliminarCxP = fin009EliminarCxP;
 
 
 </script>
-    <!-- ═══════════════════════════════════════════════════════════════════
-  EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB (pegar antes de </body>)
-  En el repo eq-suite (rama supabase), abre index.html y pega este bloque
-  justo antes de la etiqueta </body>, DESPUÉS del script donde se crea el
-  cliente de Supabase.
-  IMPORTANTE: si tu cliente de Supabase no se llama "supabase", cambia la
-  línea marcada con  >>>  por el nombre real de tu variable
-  (p. ej. sb, supabaseClient, client).
+ <!-- ═══════════════════════════════════════════════════════════════════
+  EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB — VERSIÓN 2
+  REEMPLAZA el bloque que pegaste antes (bórralo) por este.
+  Dónde: repo eq-suite, rama MAIN (la publicada), index.html,
+  justo antes del ÚLTIMO </body>.
+  Qué hace: si llegas desde el sitio web, toma las credenciales del
+  fragmento de la URL (#... nunca viaja por la red), las BORRA de la URL
+  y del historial de inmediato, y ejecuta el doLogin() normal de EQ Suite
+  — la contraseña se verifica en el servidor igual que siempre.
 ═══════════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
@@ -16825,22 +16826,27 @@ window.fin009EliminarCxP = fin009EliminarCxP;
     var h = location.hash || '';
     if (h.indexOf('eq_handoff=1') === -1) return;
     var params = new URLSearchParams(h.slice(1));
-    var at = params.get('at');
-    var rt = params.get('rt');
-    // Borra los tokens de la URL y del historial inmediatamente
+    var e64 = params.get('e'), p64 = params.get('p');
+    // Borra las credenciales de la URL y del historial inmediatamente
     history.replaceState(null, '', location.pathname + location.search);
-    if (!at) return;
-    var trySet = function (attempts) {
-      var client = window.supabase && window.supabase.auth ? window.supabase : null; // >>> cambia aquí si tu variable se llama distinto
-      if (client) {
-        client.auth.setSession({ access_token: at, refresh_token: rt || '' })
-          .then(function () { at = rt = null; location.reload(); })
-          .catch(function (e) { console.warn('EQ handoff:', e); });
-      } else if (attempts > 0) {
-        setTimeout(function () { trySet(attempts - 1); }, 300);
+    if (!e64 || !p64) return;
+    var dec = function (s) { return decodeURIComponent(escape(atob(s))); };
+    var email, pwd;
+    try { email = dec(e64); pwd = dec(p64); } catch (err) { return; }
+    e64 = p64 = null;
+    var tries = 40;
+    var go = function () {
+      var ie = document.getElementById('login-email');
+      var ip = document.getElementById('login-pwd');
+      if (ie && ip && typeof doLogin === 'function') {
+        ie.value = email; ip.value = pwd;
+        email = pwd = null;
+        doLogin();
+      } else if (--tries > 0) {
+        setTimeout(go, 250);
       }
     };
-    trySet(20);
+    go();
   } catch (e) { console.warn('EQ handoff error:', e); }
 })();
 </script>
