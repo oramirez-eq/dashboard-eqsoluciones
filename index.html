@@ -16799,4 +16799,49 @@ window.fin009MarcarPagado = fin009MarcarPagado;
 window.fin009EliminarCxP = fin009EliminarCxP;
 
 
-</script></body></html>
+</script>
+    <!-- ═══════════════════════════════════════════════════════════════════
+  EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB — VERSIÓN 2
+  REEMPLAZA el bloque que pegaste antes (bórralo) por este.
+  Dónde: repo eq-suite, rama MAIN (la publicada), index.html,
+  justo antes del ÚLTIMO </body>.
+  Qué hace: si llegas desde el sitio web, toma las credenciales del
+  fragmento de la URL (#... nunca viaja por la red), las BORRA de la URL
+  y del historial de inmediato, y ejecuta el doLogin() normal de EQ Suite
+  — la contraseña se verifica en el servidor igual que siempre.
+═══════════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+  try {
+    var h = location.hash || '';
+    if (h.indexOf('eq_handoff=1') === -1) return;
+    var params = new URLSearchParams(h.slice(1));
+    var e64 = params.get('e'), p64 = params.get('p');
+    // Borra las credenciales de la URL y del historial inmediatamente
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!e64 || !p64) return;
+    var dec = function (s) { return decodeURIComponent(escape(atob(s))); };
+    var email, pwd;
+    try { email = dec(e64); pwd = dec(p64); } catch (err) { return; }
+    e64 = p64 = null;
+    var tries = 120; // hasta 30s: espera a que el cache de datos esté listo
+    var go = function () {
+      var ie = document.getElementById('login-email');
+      var ip = document.getElementById('login-pwd');
+      var ready = ie && ip && typeof doLogin === 'function' && window._sbCache;
+      if (ready) {
+        ie.value = email; ip.value = pwd;
+        email = pwd = null;
+        doLogin();
+      } else if (--tries > 0) {
+        setTimeout(go, 250);
+      } else {
+        console.warn('EQ handoff: la plataforma no terminó de cargar.');
+      }
+    };
+    go();
+  } catch (e) { console.warn('EQ handoff error:', e); }
+})();
+</script>
+
+    </body></html>
