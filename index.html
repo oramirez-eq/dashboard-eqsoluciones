@@ -16810,7 +16810,7 @@ window.fin009EliminarCxP = fin009EliminarCxP;
 
 
 </script>
- <!-- ═══════════════════════════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════════════════════════════
   EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB — VERSIÓN 2
   REEMPLAZA el bloque que pegaste antes (bórralo) por este.
   Dónde: repo eq-suite, rama MAIN (la publicada), index.html,
@@ -16834,20 +16834,24 @@ window.fin009EliminarCxP = fin009EliminarCxP;
     var email, pwd;
     try { email = dec(e64); pwd = dec(p64); } catch (err) { return; }
     e64 = p64 = null;
-    var tries = 40;
+    var tries = 120; // hasta 30s: espera a que el cache de datos esté listo
     var go = function () {
       var ie = document.getElementById('login-email');
       var ip = document.getElementById('login-pwd');
-      if (ie && ip && typeof doLogin === 'function') {
+      var ready = ie && ip && typeof doLogin === 'function' && window._sbCache;
+      if (ready) {
         ie.value = email; ip.value = pwd;
         email = pwd = null;
         doLogin();
       } else if (--tries > 0) {
         setTimeout(go, 250);
+      } else {
+        console.warn('EQ handoff: la plataforma no terminó de cargar.');
       }
     };
     go();
   } catch (e) { console.warn('EQ handoff error:', e); }
 })();
 </script>
+
     </body></html>
