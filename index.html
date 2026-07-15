@@ -2730,6 +2730,34 @@ function renderArea(area){
 
     html += '<div class="card gap-16" style="margin-bottom:16px"><div class="section-title">Solicitudes de Usuarios Mensuales — <span>'+anioF+'</span></div><div style="height:240px;position:relative"><canvas id="bar-solicitudes"></canvas></div></div>';
 
+    // ── Efectividad del Servicio de Internet: tabla mensual + dona (sintonía con "Resumen de Solicitudes" y con el Excel) ──
+    (() => {
+      const cacheI = window._sbCache||{};
+      const empI = (cacheI.empresas||[]).find(e=>e.codigo===filtros.empresa);
+      if(!empI) return;
+      const evAll=(cacheI.eventos_internet||[]).filter(e=>e.id_empresa===empI.id && e.anio===anioF);
+      const hMes={}; for(let m=1;m<=12;m++) hMes[m]=0;
+      evAll.forEach(e=>{ const mi=MESES_N.indexOf(e.mes); if(mi>=1) hMes[mi]+=(parseFloat(e.horas_desconexion)||0); });
+      const mesRefI = mesF>0 ? mesF : (new Date().getMonth()+1);
+      let thh='<th style="background:var(--azul);color:#fff;padding:7px 10px;text-align:left;border:1px solid var(--borde);font-size:10px">Servicio</th>';
+      for(let m=1;m<=12;m++) thh+='<th style="background:var(--azul);color:#fff;padding:7px 6px;text-align:center;border:1px solid var(--borde);font-size:10px">'+MESES_N[m].slice(0,3)+'</th>';
+      let rHrs='<tr><td style="padding:6px 10px;border:1px solid var(--borde);font-weight:600;color:var(--rojo);background:#fff6f6">Horas desconexión</td>';
+      for(let m=1;m<=12;m++){ const h=hMes[m]; rHrs+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;background:#fff6f6;color:'+(h>0?"var(--rojo)":"var(--grisMed)")+'">'+(h>0?h+"h":"0")+'</td>'; }
+      rHrs+='</tr>';
+      let rEf='<tr><td style="padding:6px 10px;border:1px solid var(--borde);font-weight:700;color:var(--verde);background:#f0faf6">Efectividad %</td>';
+      for(let m=1;m<=12;m++){ const ef=Math.round((720-hMes[m])/720*1000)/10; const col=ef>=99?"var(--verde)":ef>=98?"var(--amarillo)":"var(--rojo)"; rEf+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;font-weight:700;color:'+col+';background:#f0faf6;font-size:10px">'+ef+'%</td>'; }
+      rEf+='</tr>';
+      html += '<div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px">' +
+        '<div class="card"><div class="section-title">Efectividad del Servicio de Internet — '+anioF+'</div>' +
+          '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>'+thh+'</tr></thead><tbody>'+rHrs+rEf+'</tbody></table></div>' +
+          '<div style="font-size:10px;color:var(--grisMed);margin-top:6px">Base 720 h/mes · Efectividad = (720 − horas desconexión) / 720</div></div>' +
+        '<div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+          '<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--azul);text-align:center;margin-bottom:4px">Efectividad — '+MESES_N[mesRefI].toUpperCase()+'</div>' +
+          '<div style="position:relative;width:200px;height:200px;margin:8px auto"><canvas id="pie-efectividad"></canvas></div>' +
+          '<div style="font-size:10px;color:var(--grisMed);margin-top:4px;text-align:center" id="pie-efect-legend"></div>' +
+        '</div></div>';
+    })();
+
     html += '<div class="card gap-16" style="margin-bottom:16px"><div class="section-title">Horas de Desconexión de Internet — <span>'+anioF+'</span></div><div style="height:260px;position:relative"><canvas id="bar-desconexion"></canvas></div></div>';
 
     // ── Top 5 categorías de servicio · últimos 3 meses ──
@@ -3989,6 +4017,20 @@ function initChartsTICs(){
   // Cache disponible para todos los bloques
   const cache2=window._sbCache||{};
   const empObj2=(cache2.empresas||[]).find(e=>e.codigo===emp);
+
+  // ── Dona Efectividad del Servicio de Internet (réplica del pie del Excel) ──
+  const ctxEf=document.getElementById("pie-efectividad");
+  if(ctxEf){
+    const mesRefI = mesF>0 ? mesF : (new Date().getMonth()+1);
+    const evs = empObj2 ? (cache2.eventos_internet||[]).filter(e=>e.id_empresa===empObj2.id && e.anio===anioF && e.mes===MESES_N[mesRefI]) : [];
+    const h = Math.round(evs.reduce((s,e)=>s+(parseFloat(e.horas_desconexion)||0),0)*10)/10;
+    const efe = Math.round((720-h)*10)/10;
+    const pEf = Math.round((efe/720)*1000)/10, pDe = Math.round((h/720)*1000)/10;
+    charts["pie-efect"]=new Chart(ctxEf,{type:"doughnut",data:{labels:["Efectividad","Desconexión"],datasets:[{data:[efe,h],backgroundColor:["#16A97A","#E05050"],borderWidth:2,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:true,cutout:"58%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>ctx.label+": "+ctx.raw+" h ("+(ctx.dataIndex===0?pEf:pDe)+"%)"}}}}});
+    const leg=document.getElementById("pie-efect-legend");
+    if(leg) leg.innerHTML='<div style="display:inline-flex;align-items:center;gap:5px;margin:3px 8px"><div style="width:10px;height:10px;border-radius:50%;background:#16A97A"></div><span style="font-weight:700;color:#16A97A">Efectividad '+efe+'h</span><span style="color:var(--grisMed)">'+pEf+'%</span></div>'+
+      '<div style="display:inline-flex;align-items:center;gap:5px;margin:3px 8px"><div style="width:10px;height:10px;border-radius:50%;background:#E05050"></div><span style="font-weight:700;color:#E05050">Desconexión '+h+'h</span><span style="color:var(--grisMed)">'+pDe+'%</span></div>';
+  }
 
   const ctxPie=document.getElementById("pie-solicitudes");
   if(ctxPie){
