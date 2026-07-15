@@ -2305,8 +2305,9 @@ function getKPIResumen(){
 
   // ── Recalcular TIC-001 en tiempo real desde actividades_tic ──────
   // (el valor guardado en kpi_mensual puede estar desactualizado)
+  // EXCEPTO si el mes está CERRADO (corte grabado): ahí se respeta el snapshot.
   const tic001ind = inds.find(i=>i.codigo==="TIC-001");
-  if(tic001ind && byInd[tic001ind.id]){
+  if(tic001ind && byInd[tic001ind.id] && !byInd[tic001ind.id].cerrado){
     const anioF2 = filtroPeriodo.anio>0?filtroPeriodo.anio:new Date().getFullYear();
     const mesF2  = filtroPeriodo.mes>0?filtroPeriodo.mes:0;
     const mesNom = mesF2>0?MESES_N[mesF2]:null;
@@ -2689,6 +2690,8 @@ function renderArea(area){
 
   // Detalle TICs
   if(area==="TICs"){
+    // Historial mensual congelado (corte al 28) + promedio — arriba del detalle
+    html += renderTicHistorialMensual(filtros.empresa, anioF);
     // Tabla resumen solicitudes
     const mesesList = MESES_N.slice(1);
     let tblHeader = '<th style="background:var(--azul);color:#fff;padding:7px 10px;text-align:left;border:1px solid var(--borde);font-size:10px">Solicitudes</th>';
@@ -3928,9 +3931,14 @@ function renderTicTabsBar(){
     const active = ticTab === id;
     return `<button onclick="setTicTab('${id}')" style="padding:8px 16px;border:none;background:${active?'var(--azul)':'transparent'};color:${active?'#fff':'var(--azul)'};font-weight:${active?'700':'600'};border-radius:6px;cursor:pointer;font-size:12px;font-family:'Open Sans',sans-serif">${lbl}</button>`;
   };
-  return `<div style="display:flex;gap:6px;margin:6px 0 14px;border-bottom:1px solid var(--borde);padding-bottom:6px">
+  const puedeCerrar = ["eq_admin","eq_lider","gestor_kpi"].includes(sesion?.rol);
+  const btnCierre = (puedeCerrar && ticTab==='indicadores')
+    ? `<button onclick="abrirCierreMes()" title="Congela el corte del mes (al 28) para el historial mensual" style="margin-left:auto;padding:8px 14px;border:1px solid var(--tq);background:transparent;color:var(--tq);font-weight:700;border-radius:6px;cursor:pointer;font-size:12px;font-family:'Open Sans',sans-serif">📅 Cerrar mes</button>`
+    : '';
+  return `<div style="display:flex;gap:6px;margin:6px 0 14px;border-bottom:1px solid var(--borde);padding-bottom:6px;align-items:center">
     ${tab('indicadores','📊 Indicadores')}
     ${tab('anexos','📎 Anexos')}
+    ${btnCierre}
   </div>`;
 }
 
@@ -5232,7 +5240,7 @@ function renderCarteraCxC(){
       '<td style="padding:7px 8px;color:'+cRef+';font-weight:800;text-align:right">'+(sTo>0?(sVe/sTo*100).toFixed(1)+"%":"—")+'</td></tr></tfoot>';
   }
   html += '</table></div></div>';
-  html += '<div class="card"><div class="section-title">Composición Mensual de la Cartera</div><div style="height:300px;position:relative"><canvas id="cxc-mensual"></canvas></div></div>';
+  html += '<div class="card"><div class="section-title">Evolución de la Cartera %</div><div style="height:300px;position:relative"><canvas id="cxc-mensual"></canvas></div></div>';
   html += '</div>';
 
   // ── Resumen trimestral (promedio de los 3 meses del trimestre) ──
@@ -5340,24 +5348,34 @@ function initChartsCarteraCxC(){
   const vis = meses12.filter(m=>m.tiene);
   const ctxM = document.getElementById("cxc-mensual");
   if(ctxM && vis.length){
-    charts["cxc-mensual"]=new Chart(ctxM,{
+    // Mismo lenguaje visual que el indicador 1: 100% apilado, azul/naranja, % por segmento.
+    const _pvP=vis.map(m=>m.tot>0?m.pv/m.tot*100:0);
+    const _veP=vis.map(m=>m.tot>0?m.ve/m.tot*100:0);
+    const _leP=vis.map(m=>m.tot>0?m.le/m.tot*100:0);
+    // Tendencia lineal del % vencido (mínimos cuadrados)
+    const _n=vis.length, _xs=vis.map((_,i)=>i);
+    const _sx=_xs.reduce((a,b)=>a+b,0), _sy=_veP.reduce((a,b)=>a+b,0);
+    const _sxx=_xs.reduce((a,b)=>a+b*b,0), _sxy=_xs.reduce((a,x,i)=>a+x*_veP[i],0);
+    const _den=_n*_sxx-_sx*_sx, _mm=_den!==0?(_n*_sxy-_sx*_sy)/_den:0, _bb=_n?(_sy-_mm*_sx)/_n:0;
+    const _trend=_xs.map(x=>Math.max(0,Math.min(100,_bb+_mm*x)));
+    charts["cxc-mensual"]=new Chart(ctxM,{type:"bar",
       data:{labels:vis.map(m=>MESES_N[m.mes].slice(0,3)),datasets:[
-        {type:"bar",label:"Por vencer",data:vis.map(m=>m.pv),backgroundColor:"#16A97A",stack:"c",borderRadius:2},
-        {type:"bar",label:"Vencido",data:vis.map(m=>m.ve),backgroundColor:"#E03355",stack:"c",borderRadius:2},
-        {type:"bar",label:"Legal",data:vis.map(m=>m.le),backgroundColor:"#8B0000",stack:"c",borderRadius:2},
-        {type:"line",label:"% Vencido",data:vis.map(m=>m.tot>0?m.ve/m.tot*100:0),yAxisID:"y1",borderColor:"#1A3756",borderWidth:2,pointRadius:3,pointBackgroundColor:"#1A3756",fill:false,tension:.2}
+        {label:"Por vencer",data:_pvP,backgroundColor:"#1A6FCF",stack:"c",borderRadius:2},
+        {label:"Vencido",   data:_veP,backgroundColor:"#E87A2A",stack:"c",borderRadius:2},
+        {label:"Legal",     data:_leP,backgroundColor:"#F2C94C",stack:"c",borderRadius:2},
+        {type:"line",label:"Tendencia Vencido",data:_trend,borderColor:"#E87A2A",borderWidth:2,borderDash:[3,3],pointRadius:0,fill:false,stack:"trend"}
       ]},
       options:{responsive:true,maintainAspectRatio:false,
         plugins:{legend:{position:"top",labels:{color:"#6B87A8",font:{family:"Open Sans",size:10},boxWidth:10}},
           tooltip:{callbacks:{label:it=>{
             const d=vis[it.dataIndex];
-            if(it.dataset.label==="% Vencido") return "% Vencido: "+(d.tot>0?(d.ve/d.tot*100).toFixed(1):"0")+"%";
-            return it.dataset.label+": $"+Math.round(it.parsed.y).toLocaleString("en-US");
+            if(it.dataset.label==="Tendencia Vencido") return "Tendencia vencido: "+Math.round(it.parsed.y)+"%";
+            const map={"Por vencer":d.pv,"Vencido":d.ve,"Legal":d.le};
+            return it.dataset.label+": "+Math.round(it.parsed.y)+"% ($"+Math.round(map[it.dataset.label]||0).toLocaleString("en-US")+")";
           }}}},
         scales:{x:{stacked:true,ticks:{color:"#6B87A8",font:{size:11}},grid:{display:false}},
-          y:{stacked:true,ticks:{color:"#6B87A8",callback:v=>"$"+Math.round(v/1000)+"k"},grid:{color:"#E0E8F0"},beginAtZero:true},
-          y1:{position:"right",ticks:{color:"#1A3756",callback:v=>v+"%"},grid:{display:false},beginAtZero:true,max:100}}
-      }
+          y:{stacked:true,position:"right",min:0,max:100,ticks:{color:"#6B87A8",callback:v=>v+"%"},grid:{color:"#E0E8F0"}}}},
+      plugins:[{id:"cxcLbl",afterDatasetsDraw(chart){const{ctx}=chart;ctx.save();ctx.font="bold 11px 'Open Sans'";ctx.textAlign="center";ctx.textBaseline="middle";vis.forEach((m,i)=>{[0,1,2].forEach(di=>{const el=chart.getDatasetMeta(di).data[i];if(!el)return;const pct=Math.round(chart.data.datasets[di].data[i]||0);if(pct<=0)return;if(Math.abs(el.base-el.y)>=14){ctx.fillStyle=di===2?"#5A4A00":"#fff";ctx.fillText(pct+"%",el.x,(el.y+el.base)/2);}});});ctx.restore();}}]
     });
   }
   // Antigüedad del vencido (snapshot)
@@ -9806,6 +9824,147 @@ function abrirRegistroRapido(kpiCodigo){
   const tab=kpiCodigo==="TIC-003"?"evento":kpiCodigo==="TIC-002"?"ticket":"actividad";
   ingresoTab=tab; setArea("Datos");
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CORTE MENSUAL TIC — congela los 3 indicadores del mes (snapshot al 28)
+// ═══════════════════════════════════════════════════════════════
+const TIC_NOMBRES = {"TIC-001":"Cumplimiento Actividades","TIC-002":"Atención a Usuario","TIC-003":"Confiabilidad de Internet"};
+
+// Calcula el valor de los 3 indicadores TIC para (empId, anio, mes) con la MISMA
+// lógica que muestran las tarjetas/getKPIResumen. Devuelve [{id_indicador,codigo,valor,meta,semaforo,n}].
+function _ticValoresMes(empId, anio, mes){
+  const cache=window._sbCache||{}; const inds=cache.indicadores||[]; const mesNom=MESES_N[mes];
+  const out=[];
+  const i3=inds.find(i=>i.codigo==="TIC-003");
+  if(i3){
+    const evts=(cache.eventos_internet||[]).filter(e=>e.id_empresa===empId&&e.anio===anio&&e.mes===mesNom);
+    const horas=evts.reduce((s,e)=>s+(parseFloat(e.horas_desconexion)||0),0);
+    const efec=Math.round(((720-horas)/720)*1000)/10;
+    out.push({id_indicador:i3.id,codigo:"TIC-003",valor:efec,meta:99.5,semaforo:efec>=99?"verde":efec>=98?"amarillo":"rojo",n:evts.length});
+  }
+  const i2=inds.find(i=>i.codigo==="TIC-002");
+  if(i2){
+    const sols=(cache.solicitudes_tic||[]).filter(s=>s.id_empresa===empId&&s.anio===anio&&s.mes===mesNom);
+    if(sols.length){
+      const pct=Math.round(sols.filter(s=>s.estado==="Atendido").length/sols.length*1000)/10;
+      out.push({id_indicador:i2.id,codigo:"TIC-002",valor:pct,meta:90.0,semaforo:pct>=95?"verde":pct>=85?"amarillo":"rojo",n:sols.length});
+    } else out.push({id_indicador:i2.id,codigo:"TIC-002",valor:null,meta:90.0,semaforo:null,n:0});
+  }
+  const i1=inds.find(i=>i.codigo==="TIC-001");
+  if(i1){
+    const acts=(cache.actividades_tic||[]).filter(a=>{
+      if(a.id_empresa!==empId) return false;
+      if(a.estado==="Standby") return false;
+      if(a.estado==="En progreso"||a.estado==="Atrasado") return true;
+      const trAnio=(a.trimestre||"").endsWith(String(anio));
+      const iniAnio=String(a.fecha_inicio||"").startsWith(String(anio));
+      if(!trAnio&&!iniAnio) return false;
+      return a.mes_registro===mesNom;
+    });
+    if(acts.length){
+      const pct=Math.round(acts.reduce((s,a)=>s+(parseFloat(a.avance_pct)||0),0)/acts.length*1000)/10;
+      out.push({id_indicador:i1.id,codigo:"TIC-001",valor:pct,meta:95.0,semaforo:pct>=95?"verde":pct>=85?"amarillo":"rojo",n:acts.length});
+    } else out.push({id_indicador:i1.id,codigo:"TIC-001",valor:null,meta:95.0,semaforo:null,n:0});
+  }
+  return out;
+}
+
+async function cerrarMesTIC(empId, anio, mes, usuario){
+  const vals=_ticValoresMes(empId,anio,mes);
+  const fechaCorte=anio+"-"+String(mes).padStart(2,"0")+"-28";
+  const nowIso=new Date().toISOString();
+  const cache=window._sbCache.kpi_mensual=window._sbCache.kpi_mensual||[];
+  for(const v of vals){
+    if(v.valor===null) continue; // sin datos ese mes → no se congela
+    const data={id_empresa:empId,id_indicador:v.id_indicador,anio,mes,valor:v.valor,meta:v.meta,semaforo:v.semaforo,
+      cerrado:true,fecha_corte:fechaCorte,cerrado_por:usuario||null,cerrado_en:nowIso};
+    await sbUpsert("kpi_mensual",data,"id_empresa,id_indicador,anio,mes");
+    const ki=cache.findIndex(k=>k.id_empresa===empId&&k.id_indicador===v.id_indicador&&k.anio===anio&&k.mes===mes);
+    if(ki>=0) cache[ki]={...cache[ki],...data}; else cache.push(data);
+  }
+  return vals;
+}
+window.cerrarMesTIC=cerrarMesTIC;
+
+function abrirCierreMes(){
+  const cache=window._sbCache||{};
+  const emp=(cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
+  if(!emp){ showError("Selecciona una empresa."); return; }
+  const hoy=new Date();
+  const anio=filtroPeriodo.anio>0?filtroPeriodo.anio:hoy.getFullYear();
+  const mes =filtroPeriodo.mes>0 ?filtroPeriodo.mes :hoy.getMonth()+1;
+  const vals=_ticValoresMes(emp.id,anio,mes);
+  const yaCerr=(cache.kpi_mensual||[]).some(k=>k.id_empresa===emp.id&&k.anio===anio&&k.mes===mes&&k.cerrado);
+  const rows=vals.map(v=>{
+    const col=v.semaforo==="verde"?"#16A97A":v.semaforo==="amarillo"?"#D4A012":v.semaforo==="rojo"?"#E03355":"#6B87A8";
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--borde)">'+
+      '<span style="font-size:12px;color:var(--azul);font-weight:600">'+esc(TIC_NOMBRES[v.codigo]||v.codigo)+' <span style="color:var(--grisMed);font-weight:400">('+v.n+' reg)</span></span>'+
+      '<span style="font-weight:800;color:'+col+'">'+(v.valor===null?'<span style="color:var(--grisMed);font-weight:600">— sin datos</span>':v.valor+'%')+'</span></div>';
+  }).join("");
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">📅 Cerrar mes — '+MESES_N[mes]+' '+anio+'</div>'+
+    '<div class="modal-sub" style="margin-bottom:12px">Corte al 28 · '+esc(emp.nombre)+(yaCerr?' · <b style="color:#D4A012">ya cerrado (se reemplaza)</b>':'')+'</div>'+
+    '<div style="background:#F8FAFC;border:1px solid var(--borde);border-radius:8px;padding:6px 14px;margin-bottom:14px">'+rows+'</div>'+
+    '<div style="font-size:11px;color:var(--grisMed);margin-bottom:16px;line-height:1.5">Se <b>congelan</b> estos valores para '+MESES_N[mes]+'. A partir de ahí el mes deja de recalcularse en vivo y queda fijo en el historial mensual. Los meses sin datos no se congelan.</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" onclick="confirmarCierreMes('+emp.id+','+anio+','+mes+')">📅 Cerrar '+MESES_N[mes]+'</button></div></div>');
+}
+window.abrirCierreMes=abrirCierreMes;
+
+async function confirmarCierreMes(empId,anio,mes){
+  closeModal();
+  try{
+    const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null;
+    await cerrarMesTIC(empId,anio,mes,usuario);
+    (typeof showSuccess==="function")?showSuccess("✓ "+MESES_N[mes]+" "+anio+" cerrado — corte grabado"):null;
+    renderContent();
+  }catch(e){ console.error("[cierreMes]",e); showError("Error al cerrar el mes: "+(e?.message||e)); }
+}
+window.confirmarCierreMes=confirmarCierreMes;
+
+// Historial mensual (12 meses × 3 indicadores) + promedio. Marca los meses
+// cerrados (◆, congelados); el resto se muestra atenuado (cálculo en vivo).
+function renderTicHistorialMensual(empCodigo, anio){
+  const cache=window._sbCache||{};
+  const emp=(cache.empresas||[]).find(e=>e.codigo===empCodigo);
+  if(!emp) return "";
+  const inds=cache.indicadores||[];
+  const codes=["TIC-003","TIC-002","TIC-001"];
+  const byId={}; codes.forEach(c=>{ const ind=inds.find(i=>i.codigo===c); if(ind) byId[c]=ind.id; });
+  const km=(cache.kpi_mensual||[]).filter(k=>k.id_empresa===emp.id&&k.anio===anio);
+  const map={}; codes.forEach(c=>map[c]={});
+  km.forEach(k=>{ const code=codes.find(c=>byId[c]===k.id_indicador); if(code) map[code][k.mes]=k; });
+  const hayCierre=km.some(k=>k.cerrado);
+  const NOM={"TIC-003":"Confiabilidad Internet","TIC-002":"Atención Usuario","TIC-001":"Cumplim. Actividades"};
+  let h='<div class="card" style="margin-bottom:16px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'+
+    '<div class="section-title" style="margin:0">Historial Mensual '+anio+' — Corte al 28</div>'+
+    '<div style="font-size:10px;color:var(--grisMed)">◆ mes cerrado (congelado) · el resto es cálculo en vivo</div></div>';
+  h+='<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:760px">';
+  h+='<thead><tr><th style="text-align:left;padding:6px 8px;background:var(--azul);color:#fff">Indicador</th>';
+  for(let m=1;m<=12;m++) h+='<th style="padding:6px 5px;background:var(--azul);color:#fff;text-align:center">'+MESES_C[m]+'</th>';
+  h+='<th style="padding:6px 8px;background:#0d2b47;color:#fff;text-align:center">Prom.</th></tr></thead><tbody>';
+  codes.forEach((c,ri)=>{
+    if(!byId[c]) return;
+    const bg=ri%2?"var(--grisLight)":"var(--blanco)";
+    h+='<tr><td style="padding:6px 8px;background:'+bg+';font-weight:700;color:var(--azul);white-space:nowrap">'+NOM[c]+'</td>';
+    const cerr=[],todos=[];
+    for(let m=1;m<=12;m++){
+      const k=map[c][m];
+      if(!k){ h+='<td style="padding:6px 5px;background:'+bg+';text-align:center;color:var(--grisMed)">·</td>'; continue; }
+      todos.push(+k.valor); if(k.cerrado) cerr.push(+k.valor);
+      const col=k.semaforo==="verde"?"#16A97A":k.semaforo==="amarillo"?"#D4A012":"#E03355";
+      h+='<td style="padding:6px 5px;background:'+bg+';text-align:center;font-weight:700;color:'+col+';opacity:'+(k.cerrado?1:0.4)+'">'+Math.round(k.valor)+(k.cerrado?'<span style="font-size:8px"> ◆</span>':'')+'</td>';
+    }
+    const base=cerr.length?cerr:todos;
+    const prom=base.length?Math.round(base.reduce((a,b)=>a+b,0)/base.length):null;
+    const pc=prom===null?"var(--grisMed)":prom>=95?"#16A97A":prom>=85?"#D4A012":"#E03355";
+    h+='<td style="padding:6px 8px;background:#EAF1F8;text-align:center;font-weight:800;color:'+pc+'">'+(prom===null?"—":prom+"%")+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  if(!hayCierre) h+='<div style="font-size:11px;color:#92400E;margin-top:8px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;padding:8px 10px">Aún no se cerró ningún mes. El promedio usa el cálculo en vivo — cerrá los meses con <b>📅 Cerrar mes</b> para congelar el historial oficial que verá Facundo.</div>';
+  h+='</div>';
+  return h;
+}
+window.renderTicHistorialMensual=renderTicHistorialMensual;
 
 // ═══════════════════════════════════════════════════════════════
 // EDITAR AVANCE
@@ -16799,49 +16958,4 @@ window.fin009MarcarPagado = fin009MarcarPagado;
 window.fin009EliminarCxP = fin009EliminarCxP;
 
 
-</script>
-    <!-- ═══════════════════════════════════════════════════════════════════
-  EQ SUITE — RECEPTOR DE SESIÓN DESDE EL SITIO WEB — VERSIÓN 2
-  REEMPLAZA el bloque que pegaste antes (bórralo) por este.
-  Dónde: repo eq-suite, rama MAIN (la publicada), index.html,
-  justo antes del ÚLTIMO </body>.
-  Qué hace: si llegas desde el sitio web, toma las credenciales del
-  fragmento de la URL (#... nunca viaja por la red), las BORRA de la URL
-  y del historial de inmediato, y ejecuta el doLogin() normal de EQ Suite
-  — la contraseña se verifica en el servidor igual que siempre.
-═══════════════════════════════════════════════════════════════════ -->
-<script>
-(function () {
-  try {
-    var h = location.hash || '';
-    if (h.indexOf('eq_handoff=1') === -1) return;
-    var params = new URLSearchParams(h.slice(1));
-    var e64 = params.get('e'), p64 = params.get('p');
-    // Borra las credenciales de la URL y del historial inmediatamente
-    history.replaceState(null, '', location.pathname + location.search);
-    if (!e64 || !p64) return;
-    var dec = function (s) { return decodeURIComponent(escape(atob(s))); };
-    var email, pwd;
-    try { email = dec(e64); pwd = dec(p64); } catch (err) { return; }
-    e64 = p64 = null;
-    var tries = 120; // hasta 30s: espera a que el cache de datos esté listo
-    var go = function () {
-      var ie = document.getElementById('login-email');
-      var ip = document.getElementById('login-pwd');
-      var ready = ie && ip && typeof doLogin === 'function' && window._sbCache;
-      if (ready) {
-        ie.value = email; ip.value = pwd;
-        email = pwd = null;
-        doLogin();
-      } else if (--tries > 0) {
-        setTimeout(go, 250);
-      } else {
-        console.warn('EQ handoff: la plataforma no terminó de cargar.');
-      }
-    };
-    go();
-  } catch (e) { console.warn('EQ handoff error:', e); }
-})();
-</script>
-
-    </body></html>
+</script></body></html>
