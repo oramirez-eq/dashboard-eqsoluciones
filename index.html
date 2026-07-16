@@ -1103,6 +1103,14 @@ async function supaPost(table, body){
   return r.json();
 }
 
+// Auditoría de cargas: TODO loader de archivos debe registrar aquí (accion="carga").
+// No debe romper el guardado si falla (best-effort). Ver memoria [[auditoria-cargas]].
+async function _logCarga(detalle){
+  try{ await supaPost("log_accesos",{email:((typeof sesion!=="undefined"&&sesion?.email)||"—"),accion:"carga",detalle:String(detalle).slice(0,240)}); }
+  catch(e){ console.warn("[logCarga]", e?.message||e); }
+}
+window._logCarga=_logCarga;
+
 async function supaPatch(table, filter, body){
   const r = await fetch(SUPA_URL+"/rest/v1/"+table+"?"+filter, {
     method:"PATCH", headers:{...SUPA_HDR,"Prefer":"return=minimal"},
@@ -1238,13 +1246,16 @@ async function cargarDBResto(){
     const fin_cxc_config  = await q("fin_cxc_config",  {select:"*"}).catch(()=>[]);
     const fin_cxc_cartera = await q("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc,total.desc", limit:5000}).catch(()=>[]);
     const fin_cxp_mensual = await q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
+    // BOD-IND-001 Confiabilidad de Inventarios — resumen ligero (solo columnas para el
+    // rollup Gerencial: la vista de detalle recarga producto a producto bajo demanda).
+    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,sistema_cant,costo,real_cant&order=anio.asc,mes.asc").catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
-      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2383,6 +2394,64 @@ function getKPIResumen(){
       byInd[fin001.id] = {id_indicador:fin001.id, id_empresa:emp.id, anio:anioLive, mes:mesUltPP,
                           valor:Math.round(pctFin*10)/10,
                           semaforo: pctFin>=objFin?"verde":pctFin>=80?"amarillo":"rojo"};
+    }
+  }
+
+  // FIN-003 · Cartera Vencida (CxC) — fuente: fin_cxc_mensual (% vencido; menor es mejor)
+  const fin003 = inds.find(i=>i.codigo==="FIN-003");
+  if(fin003){
+    const cxcRows = (cache.fin_cxc_mensual||[])
+      .filter(m=>m.id_empresa===emp.id && m.anio===anioLive && (mesLive>0?m.mes===mesLive:true) && (+m.total)>0);
+    if(cxcRows.length){
+      const r = cxcRows.sort((a,b)=>b.mes-a.mes)[0];
+      const pv = (+r.total>0) ? (+r.vencido/+r.total*100) : 0;
+      const cfg = (cache.fin_cxc_config||[]).find(x=>x.id_empresa===emp.id);
+      const obj = cfg?parseFloat(cfg.objetivo_pct_vencido):40, amar = cfg?parseFloat(cfg.umbral_amarillo):55;
+      byInd[fin003.id] = {id_indicador:fin003.id, id_empresa:emp.id, anio:anioLive, mes:r.mes,
+                          valor:Math.round(pv*10)/10,
+                          semaforo: pv<=obj?"verde":pv<=amar?"amarillo":"rojo"};
+    }
+  }
+
+  // TES-IND-003 · Edades de CxP — fuente: fin_cxp_mensual (% vencido = (total−por_vencer)/total; menor mejor)
+  const cxp003 = inds.find(i=>i.codigo==="TES-IND-003");
+  if(cxp003){
+    const cxpRows = (cache.fin_cxp_mensual||[])
+      .filter(m=>m.id_empresa===emp.id && m.anio===anioLive && (mesLive>0?m.mes===mesLive:true) && (+m.total)>0);
+    if(cxpRows.length){
+      const r = cxpRows.sort((a,b)=>b.mes-a.mes)[0];
+      const pv = ((+r.total)-(+r.por_vencer||0))/(+r.total)*100;
+      const obj = parseFloat(cxp003.meta_default)||15;
+      byInd[cxp003.id] = {id_indicador:cxp003.id, id_empresa:emp.id, anio:anioLive, mes:r.mes,
+                          valor:Math.round(pv*10)/10,
+                          semaforo: pv<=obj?"verde":pv<=(obj*2)?"amarillo":"rojo"};
+    }
+  }
+
+  // ABA-005 · Confiabilidad de Inventarios — fuente: bod_saldo (resumen)
+  // Réplica EXACTA de renderConfiabilidadHTML: por grupo, Σsistema sobre TODOS los productos
+  // del grupo y Σ|sistema−físico| sólo sobre los contados; confU = 1−Σ|dif|/Σsistema.
+  // El headline del Gerencial es el promedio simple de la confiabilidad (unidades) entre
+  // grupos (no se suman galones + kg + unidades). Mes = filtrado, o el último con físico.
+  const aba005 = inds.find(i=>i.codigo==="ABA-005");
+  if(aba005){
+    const bodAll = (cache.bod_saldo_resumen||[]).filter(b=>b.id_empresa===emp.id && b.anio===anioLive);
+    const mesBod = mesLive>0 ? mesLive
+      : bodAll.filter(b=>b.real_cant!=null).map(b=>b.mes).sort((a,b)=>b-a)[0];
+    if(mesBod){
+      const G = {};
+      bodAll.filter(b=>b.mes===mesBod).forEach(b=>{
+        const g = b.grupo || "Otros"; (G[g] = G[g] || {sis:0,dif:0,nc:0});
+        const s = +b.sistema_cant||0; G[g].sis += s;
+        if(b.real_cant!=null){ G[g].dif += Math.abs(s-(+b.real_cant||0)); G[g].nc++; }
+      });
+      const confs = Object.values(G).filter(g=>g.nc>0 && g.sis>0).map(g=>(1-g.dif/g.sis)*100);
+      if(confs.length){
+        const conf = confs.reduce((s,x)=>s+x,0)/confs.length;
+        byInd[aba005.id] = {id_indicador:aba005.id, id_empresa:emp.id, anio:anioLive, mes:mesBod,
+                            valor:Math.round(conf*10)/10,
+                            semaforo: conf>=95?"verde":conf>=71?"amarillo":"rojo"};
+      }
     }
   }
 
@@ -5611,7 +5680,13 @@ async function loadAbastecimiento(){
   const emp=(cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
   if(!emp){ cont.innerHTML='<div class="card" style="padding:24px">Seleccioná una empresa.</div>'; return; }
   const anio=filtroPeriodo.anio>0?filtroPeriodo.anio:2026;
-  const mes=filtroPeriodo.mes>0?filtroPeriodo.mes:(new Date()).getMonth()+1;
+  let mes=filtroPeriodo.mes>0?filtroPeriodo.mes:0;
+  if(!mes){
+    // Sin filtro de mes: usar el último mes con inventario cargado (evita "Sin datos"
+    // en el mes corriente que aún no tiene corte). Fallback: mes calendario actual.
+    const rr=(cache.bod_saldo_resumen||[]).filter(b=>b.id_empresa===emp.id && b.anio===anio).map(b=>b.mes);
+    mes = rr.length ? Math.max(...rr) : (new Date()).getMonth()+1;
+  }
   let rows=[];
   try{ rows=await sbQueryPaginated("bod_saldo","select=*&id_empresa=eq."+emp.id+"&anio=eq."+anio+"&mes=eq."+mes,1000); }
   catch(e){ console.error("[abast]",e); }
@@ -7107,6 +7182,7 @@ async function balanceGuardar(){
     const fechaGuardada = _balancePreview.fechaCorte;
     _balancePreview = null;
     const okMsg = "✓ Balance guardado · " + fechaGuardada;
+    await _logCarga("Balance Periódico (Contifico) · corte "+fechaGuardada);
     (typeof showSuccess==="function")?showSuccess(okMsg):alert(okMsg);
     if(typeof renderContent==="function") renderContent();
   } catch(e){
@@ -7374,6 +7450,7 @@ async function cxcGuardar(){
     window._sbCache.fin_cxc_cartera = await sbQuery("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc", limit:5000}).catch(()=>[]);
     window._sbCache.fin_cxc_mensual = await sbQuery("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
     const msg = "✓ Cartera guardada · "+MESES_N[p.mes]+" "+p.anio+" ("+p.clientes.length+" clientes)";
+    await _logCarga("TES-IND-002 Cartera CxC · "+p.clientes.length+" clientes · "+MESES_N[p.mes]+" "+p.anio);
     _cxcPreview=null;
     (typeof showSuccess==="function")?showSuccess(msg):alert(msg);
     renderContent();
@@ -7508,6 +7585,7 @@ async function cxpGuardar(){
     await sbUpsert("fin_cxp_mensual", payload, "id_empresa,anio,mes");
     window._sbCache.fin_cxp_mensual = await sbQuery("fin_cxp_mensual",{select:"*",order:"anio.asc,mes.asc",limit:5000}).catch(()=>[]);
     _cxpPreview=null;
+    await _logCarga("TES-IND-003 Aging CxP · "+MESES_N[mes]+" "+anio);
     (typeof showSuccess==="function")?showSuccess("✓ Aging CxP guardado · "+MESES_N[mes]+" "+anio):null;
     renderContent();
   }catch(e){ console.error("[cxpGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
@@ -7599,6 +7677,7 @@ async function bodSaldoGuardar(){
     const payload=_bodPreview.list.map(p=>({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,grupo:p.grupo,producto:p.producto,nombre:p.nombre,medida:p.medida,
       sistema_cant:p.stock,costo:p.costo,sistema_total:p.total,fecha_corte:fc,fuente:"acosux",cargado_por:usuario,actualizado_en:nowIso}));
     await _bodUpsert(payload);
+    await _logCarga("BOD-IND-001 Saldo Bodega (Sistema) · "+payload.length+" productos · "+MESES_N[mes]+" "+anio);
     _bodPreview=null;
     (typeof showSuccess==="function")?showSuccess("✓ Sistema guardado · "+payload.length+" productos · "+MESES_N[mes]+" "+anio):null;
     renderContent();
@@ -7643,6 +7722,7 @@ async function bodFisicoGuardar(){
       payload.push({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,producto:p.producto,real_cant:p.stock,actualizado_en:nowIso,cargado_por:usuario}); } });
     if(!payload.length){ showError("Ningún producto del conteo coincide con el sistema del mes."); return; }
     await _bodUpsert(payload);
+    await _logCarga("BOD-IND-001 Conteo Físico (Real) · "+match+" productos · "+MESES_N[mes]+" "+anio);
     _bodfPreview=null;
     (typeof showSuccess==="function")?showSuccess("✓ Conteo físico guardado · "+match+" productos actualizados"):null;
     renderContent();
@@ -8023,6 +8103,7 @@ async function corridaGuardar(){
     // 4. Refrescar caché del agregado
     window._sbCache.pagos_proveedores = await sbQuery("pagos_proveedores", {select:"*", order:"anio.asc,mes.asc", limit:500}).catch(()=>window._sbCache.pagos_proveedores||[]);
     _corridaPreview = null;
+    await _logCarga("TES-IND-001 Corrida de Pagos · "+detalle.length+" docs · "+fila.periodo_label);
     showSuccess("✓ Corrida guardada: "+detalle.length.toLocaleString("en-US")+" documentos · "+fila.periodo_label+" · "+fila.pct_cumplimiento+"% cumplimiento");
     renderContent();
   } catch(e){
