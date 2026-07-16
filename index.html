@@ -1237,13 +1237,14 @@ async function cargarDBResto(){
     const fin_cxc_mensual = await q("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
     const fin_cxc_config  = await q("fin_cxc_config",  {select:"*"}).catch(()=>[]);
     const fin_cxc_cartera = await q("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc,total.desc", limit:5000}).catch(()=>[]);
+    const fin_cxp_mensual = await q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
-      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2086,6 +2087,9 @@ function renderContent(){
       // (Lukmar camaronera: liquidacion proceso planta fuera de Acosux). Ampliable.
       const CXC_EMPRESAS = ["LUKMAR"];
       if(CXC_EMPRESAS.includes(filtros.empresa)) tabsBase.push(["cartera_cxc","📊 TES-IND-002 Cartera Vencida"]);
+      // TES-IND-003 Edades de CxP (aging): Lukmar (seed Excel) + empresas Contifico (eq_cartera_periodo)
+      const CXP_EMPRESAS = ["LUKMAR","LUKFRUIT","SUPERHEALTHY"];
+      if(CXP_EMPRESAS.includes(filtros.empresa)) tabsBase.push(["edades_cxp","📉 TES-IND-003 Edades CxP"]);
       // FIN-IND-005 solo si la empresa activa tiene config API en BD
       const cache2 = window._sbCache||{};
       const empActiva = (cache2.empresas||[]).find(e=>e.codigo===filtros.empresa);
@@ -2121,6 +2125,7 @@ function renderContent(){
     try {
       finBodyDiv.innerHTML = finTab==="cobro"         ? renderEfectividadCobro() :
                              finTab==="cartera_cxc"   ? renderCarteraCxC() :
+                             finTab==="edades_cxp"    ? renderEdadesCxP() :
                              finTab==="ventas"        ? "<div id='ven-container'></div>" :
                              finTab==="formas_pago"   ? "<div id='fin006-container'></div>" :
                              finTab==="descuentos"    ? "<div id='fin007-container'></div>" :
@@ -2133,6 +2138,7 @@ function renderContent(){
     setTimeout(function(){
       if(finTab==="cobro") initChartsEfectividad();
       else if(finTab==="cartera_cxc"){ setTimeout(()=>{ try{ initChartsCarteraCxC(); }catch(e){ console.error("[cxc-charts]", e); } },60); }
+      else if(finTab==="edades_cxp"){ setTimeout(()=>{ try{ initChartsEdadesCxP(); }catch(e){ console.error("[cxp-charts]", e); } },60); }
       else if(finTab==="ventas"){
       setTimeout(async function(){
         await venCargarConfig();  // carga config API de la empresa activa
@@ -5444,6 +5450,135 @@ window.renderCarteraCxC = renderCarteraCxC;
 window.initChartsCarteraCxC = initChartsCarteraCxC;
 
 // ═══════════════════════════════════════════════════════════════
+// TES-IND-003 · EDADES DE CUENTAS POR PAGAR (aging CxP mensual)
+// Diseño de Facundo: barras apiladas en $ absoluto (miles) + tabla, con
+// 5 buckets y sus etiquetas exactas. NO usa el estilo % de los IND 1/2.
+// ═══════════════════════════════════════════════════════════════
+const CXP_BUCKETS = [
+  {k:"pv", label:"Por vencer",        color:"#2E6E85"},
+  {k:"d1", label:"Vcdo 1 a 30 dias",  color:"#E8843C"},
+  {k:"d2", label:"Vcdo 31 a 60 dias", color:"#4E8C46"},
+  {k:"d3", label:"Vcdo 60 a 90 dias", color:"#52A0CC"},
+  {k:"d4", label:"Vcdo + 90 dias",    color:"#8A5A9E"},
+];
+
+// Serie mensual del aging: fin_cxp_mensual (Lukmar seed) o derivada de
+// eq_cartera_periodo (empresas Contifico, corte fin de mes). Valores en USD.
+function _edadesCxPData(empCodigo, anio){
+  const cache=window._sbCache||{};
+  const emp=(cache.empresas||[]).find(e=>e.codigo===empCodigo);
+  if(!emp) return {rows:[], fuente:null, fechaCorte:null, empNom:empCodigo};
+  const mens=(cache.fin_cxp_mensual||[]).filter(m=>m.id_empresa===emp.id && m.anio===anio);
+  const rows=[]; let fuente=null, fechaCorte=null;
+  if(mens.length){
+    const by={}; mens.forEach(m=>{ by[m.mes]=m; });
+    for(let mm=1;mm<=12;mm++){
+      const r=by[mm]; const tot=r?(+r.total||0):0;
+      rows.push({mes:mm, pv:r?+r.por_vencer||0:0, d1:r?+r.d1_30||0:0, d2:r?+r.d31_60||0:0, d3:r?+r.d61_90||0:0, d4:r?+r.dmas90||0:0, tot, tiene:!!r && tot>0});
+    }
+    fuente="mensual";
+  } else {
+    const cart=(cache.eq_cartera_periodo||[]).filter(c=>c.id_empresa===emp.id && c.tipo==="CXP" && String(c.fecha_corte||"").startsWith(String(anio)));
+    if(cart.length){
+      const porMes={};
+      cart.forEach(c=>{ const mm=parseInt(String(c.fecha_corte).slice(5,7)); (porMes[mm]=porMes[mm]||[]).push(c); });
+      for(let mm=1;mm<=12;mm++){
+        const arr=porMes[mm];
+        if(!arr){ rows.push({mes:mm,pv:0,d1:0,d2:0,d3:0,d4:0,tot:0,tiene:false}); continue; }
+        const maxF=arr.map(c=>c.fecha_corte).sort().reverse()[0];
+        const snap=arr.filter(c=>c.fecha_corte===maxF);
+        const s=f=>snap.reduce((a,c)=>a+(+c[f]||0),0);
+        const pv=s('por_vencer'), d1=s('d30'), d2=s('d60'), d3=s('d90'), d4=s('d120')+s('dmas120');
+        const tot=pv+d1+d2+d3+d4;
+        rows.push({mes:mm,pv,d1,d2,d3,d4,tot,tiene:tot>0});
+        fechaCorte=maxF;
+      }
+      fuente="contifico";
+    } else { for(let mm=1;mm<=12;mm++) rows.push({mes:mm,pv:0,d1:0,d2:0,d3:0,d4:0,tot:0,tiene:false}); }
+  }
+  return {rows, fuente, fechaCorte, empNom:emp.nombre};
+}
+
+function renderEdadesCxP(){
+  const anioF=filtroPeriodo.anio>0?filtroPeriodo.anio:2026;
+  const emp=filtros.empresa;
+  const D=_edadesCxPData(emp, anioF);
+  const rows=D.rows; const conDato=rows.filter(r=>r.tiene);
+  const _mil=v=>Math.round((v||0)/1000).toLocaleString("en-US");
+  window._cxpRows=rows; window._cxpAnio=anioF;
+
+  let html=buildPeriodoUI();
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">'+
+    '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">📉 Edades de Cuentas por Pagar — '+esc(D.empNom||emp)+'</div>'+
+    '<div style="font-size:11px;color:var(--grisMed)">TES-IND-003 · USD$ 000 (miles) · '+anioF+'</div></div>'+
+    '<div style="font-size:10px;color:var(--grisMed);text-align:right">Fuente<br><span style="color:var(--tq);font-weight:700">'+(D.fuente==="contifico"?"ERP CONTIFICO":"ACOSUX / EXCEL")+'</span></div>'+
+    '</div>';
+
+  if(!conDato.length){
+    html+='<div class="card" style="text-align:center;padding:36px"><div style="font-size:34px">📉</div>'+
+      '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;margin-top:10px">Sin datos de CxP para '+esc(D.empNom||emp)+'</div>'+
+      '<div style="font-size:12px;color:var(--grisMed);margin-top:6px;max-width:540px;margin-left:auto;margin-right:auto">'+
+      (["LUKFRUIT","SUPERHEALTHY"].includes(emp)?'Se deriva del sync de Contifico (eq_cartera_periodo, tipo CXP). Esperá el corte diario.':'La serie de Lukmar se siembra del Excel TES-IND-003 y se actualiza con el reporte CarteraPorPagar de Acosux.')+'</div></div>';
+    return html;
+  }
+
+  // Métricas del último mes con dato
+  const last=conDato[conDato.length-1];
+  const venc=last.d1+last.d2+last.d3+last.d4;
+  const pctV=last.tot>0?venc/last.tot*100:0;
+  const _f$=v=>"$"+Math.round(v||0).toLocaleString("en-US");
+  html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">';
+  [{l:"CxP Total · "+MESES_N[last.mes],v:_f$(last.tot),c:"var(--azul)"},
+   {l:"Por Vencer",v:_f$(last.pv),s:(last.tot>0?(last.pv/last.tot*100).toFixed(0)+"% del total":""),c:"#2E6E85"},
+   {l:"Vencido (1–90+ días)",v:_f$(venc),s:pctV.toFixed(0)+"% del total",c:"#E03355"}
+  ].forEach(m=>{
+    html+='<div class="metric-card" style="padding:14px 18px"><div class="metric-label">'+m.l+'</div>'+
+      '<div style="font-size:22px;font-weight:800;font-family:\'Raleway\',sans-serif;color:'+m.c+'">'+m.v+'</div>'+
+      (m.s?'<div style="font-size:12px;font-weight:700;color:'+m.c+';opacity:.85;margin-top:2px">'+m.s+'</div>':'')+'</div>';
+  });
+  html+='</div>';
+
+  // Tabla "Edad cartera" (réplica Facundo, en miles)
+  html+='<div class="card" style="margin-bottom:16px"><div class="section-title">Edad cartera '+anioF+' — USD$ 000 (miles)</div>';
+  html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:820px">';
+  html+='<thead><tr><th style="position:sticky;left:0;z-index:2;background:var(--azul);color:#fff;padding:7px 10px;text-align:left;border:1px solid var(--borde)">Edad cartera</th>';
+  for(let m=1;m<=12;m++) html+='<th style="background:var(--azul);color:#fff;padding:7px 6px;text-align:right;border:1px solid var(--borde);white-space:nowrap">'+MESES_N[m].slice(0,3).toLowerCase()+'-'+String(anioF).slice(2)+'</th>';
+  html+='</tr></thead><tbody>';
+  CXP_BUCKETS.forEach((b,bi)=>{
+    const bg=bi%2?"var(--grisLight)":"var(--blanco)";
+    html+='<tr><td style="position:sticky;left:0;z-index:1;background:'+bg+';padding:6px 10px;border:1px solid var(--borde);font-weight:600;white-space:nowrap"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+b.color+';margin-right:6px;vertical-align:middle"></span>'+b.label+'</td>';
+    for(let m=1;m<=12;m++){ const r=rows[m-1]; const v=r.tiene?r[b.k]:null; html+='<td style="background:'+bg+';padding:6px 6px;border:1px solid var(--borde);text-align:right;font-variant-numeric:tabular-nums">'+(v!=null?_mil(v):"")+'</td>'; }
+    html+='</tr>';
+  });
+  html+='<tr><td style="position:sticky;left:0;z-index:1;background:var(--azul);color:#fff;padding:7px 10px;border:1px solid var(--borde);font-weight:800">Totales</td>';
+  for(let m=1;m<=12;m++){ const r=rows[m-1]; html+='<td style="background:var(--azul);color:#fff;padding:7px 6px;border:1px solid var(--borde);text-align:right;font-weight:800;font-variant-numeric:tabular-nums">'+(r.tiene?_mil(r.tot):"-")+'</td>'; }
+  html+='</tr></tbody></table></div></div>';
+
+  // Gráfico apilado (diseño de Facundo)
+  html+='<div class="card"><div class="section-title">Edades de Cuentas por Pagar — '+anioF+' (miles USD)</div><div style="height:380px;position:relative"><canvas id="cxp-aging"></canvas></div></div>';
+  return html;
+}
+window.renderEdadesCxP=renderEdadesCxP;
+
+function initChartsEdadesCxP(){
+  const ctx=document.getElementById("cxp-aging");
+  if(!ctx) return;
+  const rows=window._cxpRows||[]; const vis=rows.filter(r=>r.tiene);
+  if(!vis.length) return;
+  const anioF=window._cxpAnio||2026; const yy=String(anioF).slice(2);
+  const labels=vis.map(r=>MESES_N[r.mes].slice(0,3).toLowerCase()+"-"+yy);
+  const datasets=CXP_BUCKETS.map(b=>({label:b.label,data:vis.map(r=>Math.round(r[b.k]/1000)),backgroundColor:b.color,stack:"a",borderRadius:1,borderWidth:0}));
+  charts["cxp-aging"]=new Chart(ctx,{type:"bar",data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:"bottom",labels:{color:"#6B87A8",font:{family:"Open Sans",size:10},boxWidth:12,padding:12}},
+        tooltip:{callbacks:{label:it=>it.dataset.label+": "+it.parsed.y.toLocaleString("en-US")+" mil"}}},
+      scales:{x:{stacked:true,ticks:{color:"#6B87A8",font:{size:11}},grid:{display:false}},
+        y:{stacked:true,ticks:{color:"#6B87A8",callback:v=>v.toLocaleString("en-US")},grid:{color:"#E0E8F0"},beginAtZero:true}}},
+    plugins:[{id:"cxpLbl",afterDatasetsDraw(chart){const{ctx}=chart;ctx.save();ctx.font="bold 10px 'Open Sans'";ctx.fillStyle="#fff";ctx.textAlign="center";ctx.textBaseline="middle";vis.forEach((r,i)=>{[0,1,2,3,4].forEach(di=>{const el=chart.getDatasetMeta(di).data[i];if(!el)return;const val=chart.data.datasets[di].data[i]||0;if(val<=0)return;if(Math.abs(el.base-el.y)>=13)ctx.fillText(val.toLocaleString("en-US"),el.x,(el.y+el.base)/2);});});ctx.restore();}}]});
+}
+window.initChartsEdadesCxP=initChartsEdadesCxP;
+
+// ═══════════════════════════════════════════════════════════════
 // INGRESO DE DATOS
 // ═══════════════════════════════════════════════════════════════
 function setIngresoTab(tab){ ingresoTab=tab; renderContent(); }
@@ -5469,6 +5604,7 @@ function renderIngresoDatos(){
     {id:"corrida",     icon:"💸", label:"Corrida de Pagos",     cat:"FIN",  gate:"Finanzas"},
     {id:"progpagos",   icon:"💰", label:"Programación de Pagos", cat:"FIN", gate:"Finanzas"},
     {id:"cartera-cxc", icon:"📊", label:"Cartera Clientes (CxC)", cat:"FIN", gate:"Finanzas"},
+    {id:"cartera-cxp", icon:"📉", label:"Edades CxP (Cartera x Pagar)", cat:"FIN", gate:"Finanzas"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -5895,6 +6031,50 @@ function renderIngresoDatos(){
           '<td style="padding:8px;text-align:right;font-weight:700;color:'+cp+'">'+pv.toFixed(1)+'%</td>' +
           '<td style="padding:8px;text-align:right"><button onclick="cxcEliminar('+r.id_empresa+',\''+esc(r.fecha)+'\')" style="padding:3px 8px;font-size:10px;border:1px solid #E03355;color:#E03355;background:transparent;border-radius:4px;cursor:pointer">🗑 Eliminar</button></td>' +
           '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+
+  } else if(ingresoTab==="cartera-cxp"){
+    // ── Tab Edades CxP — reporte "Cartera por Pagar" de Acosux/Contifico ──
+    // Alimenta TES-IND-003. Agrupa por antigüedad (Edad de cartera / columnas / días vencidos) y suma Saldo.
+    const _f$c = v => "$"+Math.round(v||0).toLocaleString("en-US");
+    const empMapP = {}; (window._sbCache?.empresas||[]).forEach(e=>{ empMapP[e.id]=e.nombre; });
+    const recientesP = (window._sbCache?.fin_cxp_mensual||[]).slice()
+      .sort((a,b)=>(b.anio-a.anio)||(b.mes-a.mes)).slice(0,12);
+    html += '<div class="ingreso-form">' +
+      '<div class="ingreso-form-title">📉 Edades de Cuentas por Pagar — Reporte de Cartera</div>' +
+      '<div class="ingreso-form-sub">Sube el reporte <b>Cartera por Pagar</b> (Acosux para Lukmar, o Contifico). El sistema agrupa por antigüedad ' +
+      '(Por vencer / 1-30 / 31-60 / 60-90 / +90) sumando el <b>Saldo</b>, y actualiza el mes del indicador <b>TES-IND-003</b>. ' +
+      'Regla de Facundo: agrupar por la columna <b>Edad de cartera</b> (si el reporte la trae) o por días vencidos.</div>' +
+      '<div class="form-grid">' +
+      '<div class="form-group"><label class="form-label">Empresa</label><select id="cxp-empresa" class="form-select">'+empOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Mes del corte</label><select id="cxp-mes" class="form-select">'+mesOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Año</label><select id="cxp-anio" class="form-select">'+anioOpts+'</select></div>' +
+      '<div class="form-group form-full"><label class="form-label">Archivo del reporte (.xls/.xlsx)</label>' +
+      '<input type="file" id="cxp-archivo" accept=".xls,.xlsx" class="form-input" onchange="cxpLeerExcel()" style="padding:8px"/></div>' +
+      '</div>' +
+      '<div id="cxp-preview" style="display:none;margin-top:14px;padding:14px;background:#F8FAFC;border:1px solid var(--borde);border-radius:8px"></div>' +
+      '<div style="display:flex;gap:12px;align-items:center;margin-top:12px">' +
+      '<button class="submit-btn" id="cxp-btn-guardar" onclick="cxpGuardar()" disabled style="opacity:0.5">💾 Guardar Aging</button>' +
+      '<span style="font-size:11px;color:var(--grisMed)">Sube el archivo para habilitar el guardado</span></div>' +
+      '</div>';
+    html += '<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimos cortes de CxP cargados</div>';
+    if(!recientesP.length){
+      html += '<div style="font-size:12px;color:var(--grisMed)">Sin cargas aún · Lukmar arranca con el seed del Excel; sube un reporte para actualizar.</div>';
+    } else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">' +
+        ['EMPRESA','MES','POR VENCER','VENCIDO','TOTAL','FUENTE'].map(h=>'<th style="padding:8px;font-size:10px;color:#6B87A8;font-weight:700'+(["POR VENCER","VENCIDO","TOTAL"].includes(h)?";text-align:right":"")+'">'+h+'</th>').join("")+'</tr></thead><tbody>';
+      recientesP.forEach(r=>{
+        const venc=(+r.d1_30||0)+(+r.d31_60||0)+(+r.d61_90||0)+(+r.dmas90||0);
+        html += '<tr style="border-bottom:1px solid var(--borde)">' +
+          '<td style="padding:8px">'+esc(empMapP[r.id_empresa]||"—")+'</td>' +
+          '<td style="padding:8px">'+(MESES_N[r.mes]||r.mes)+' '+r.anio+'</td>' +
+          '<td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">'+_f$c(r.por_vencer)+'</td>' +
+          '<td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">'+_f$c(venc)+'</td>' +
+          '<td style="padding:8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums">'+_f$c(r.total)+'</td>' +
+          '<td style="padding:8px;color:var(--grisMed);font-size:11px">'+esc(r.fuente||"—")+'</td></tr>';
       });
       html += '</tbody></table>';
     }
@@ -7076,6 +7256,110 @@ async function cxcEliminar(idEmpresa, fecha){
   } catch(e){ console.error("[cxcEliminar]", e); showError("Error: "+e.message); }
 }
 window.cxcEliminar = cxcEliminar;
+
+// ═══════════════════════════════════════════════════════════════
+// TES-IND-003 EDADES CxP — Parser del reporte "Cartera por Pagar"
+// Regla de Facundo: agrupar por antigüedad + sumar Saldo. Robusto a 3
+// formatos: etiqueta "Edad de cartera", columnas de aging, o días vencidos.
+// ═══════════════════════════════════════════════════════════════
+let _cxpPreview = null;
+function _cxpNorm(s){ return String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim(); }
+function _cxpEdadBucket(e){
+  e=_cxpNorm(e);
+  if(!e) return null;
+  if(e.includes("por vencer")) return "pv";
+  if(e.includes("+90")||e.includes("+ 90")||e.includes(">90")||e.includes("> 90")||e.includes("mas 90")||e.includes("mayor")) return "d4";
+  if(e.includes("60-90")||e.includes("60 a 90")) return "d3";
+  if(e.includes("30-60")||e.includes("31-60")||e.includes("31 a 60")) return "d2";
+  if(e.includes("1-30")||e.includes("1 a 30")) return "d1";
+  return null;
+}
+function _cxpColBucket(h){
+  h=_cxpNorm(h);
+  if(h.includes("por vencer")) return "pv";
+  if(h.includes("120")||h.includes("mayor")||h.includes("mas 120")) return "d4";
+  if(h.includes("90")) return "d3";
+  if(h.includes("60")) return "d2";
+  if(h.includes("30")) return "d1";
+  return null;
+}
+
+async function cxpLeerExcel(){
+  const fileEl=document.getElementById("cxp-archivo"), previewEl=document.getElementById("cxp-preview"), btn=document.getElementById("cxp-btn-guardar");
+  if(!fileEl?.files?.length) return;
+  const file=fileEl.files[0];
+  previewEl.style.display="block"; previewEl.innerHTML='<div style="color:var(--grisMed);font-size:12px">⏳ Leyendo reporte...</div>';
+  _cxpPreview=null; if(btn){ btn.disabled=true; btn.style.opacity="0.5"; }
+  try{
+    if(!window.XLSX){
+      await new Promise((res,rej)=>{ const s=document.createElement("script");
+        s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        s.integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw";
+        s.crossOrigin="anonymous"; s.onload=res; s.onerror=()=>rej(new Error("No se pudo cargar SheetJS")); document.head.appendChild(s); });
+    }
+    const wb=XLSX.read(await file.arrayBuffer(),{type:"array"});
+    // hoja con más filas = detalle
+    let rows=null, bestN=-1;
+    wb.SheetNames.forEach(n=>{ const rr=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null}); if(rr.length>bestN){ bestN=rr.length; rows=rr; } });
+    if(!rows){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ Reporte vacío.</div>'; return; }
+    // fila de encabezado
+    let hIdx=-1;
+    for(let i=0;i<Math.min(rows.length,45);i++){ const r=rows[i]; if(!r) continue; const t=r.map(_cxpNorm); if(t.some(x=>x==="saldo"||x.includes("edad de cartera")||x==="por vencer")){ hIdx=i; break; } }
+    if(hIdx<0){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ No reconozco el reporte (no encontré columna Saldo / Edad de cartera / Por vencer).</div>'; return; }
+    const hdr=rows[hIdx].map(_cxpNorm);
+    const idxSaldo=hdr.findIndex(x=>x==="saldo");
+    const idxEdad=hdr.findIndex(x=>x.includes("edad de cartera"));
+    const idxDias=hdr.findIndex(x=>x.includes("dias vencidos")||x.includes("dias vencido"));
+    const num=v=>{ const n=parseFloat(v); return isNaN(n)?0:n; };
+    const T={pv:0,d1:0,d2:0,d3:0,d4:0}; let fmt=null, nDocs=0;
+    if(idxEdad>=0 && idxSaldo>=0){
+      fmt="Edad de cartera + Saldo";
+      for(let i=hIdx+1;i<rows.length;i++){ const r=rows[i]; if(!r) continue; const b=_cxpEdadBucket(r[idxEdad]); if(!b) continue; T[b]+=num(r[idxSaldo]); nDocs++; }
+    } else {
+      const colMap={pv:[],d1:[],d2:[],d3:[],d4:[]};
+      hdr.forEach((h,ci)=>{ const b=_cxpColBucket(h); if(b) colMap[b].push(ci); });
+      const nCols=Object.values(colMap).reduce((a,x)=>a+x.length,0);
+      if(nCols>=4){
+        fmt="Columnas de aging";
+        for(let i=hIdx+1;i<rows.length;i++){ const r=rows[i]; if(!r) continue; let any=false; for(const b in colMap){ colMap[b].forEach(ci=>{ const v=num(r[ci]); if(v){ T[b]+=v; any=true; } }); } if(any) nDocs++; }
+      } else if(idxDias>=0 && idxSaldo>=0){
+        fmt="Días vencidos + Saldo (aprox.)";
+        for(let i=hIdx+1;i<rows.length;i++){ const r=rows[i]; if(!r) continue; const s=num(r[idxSaldo]); if(!s) continue; const dv=num(r[idxDias]); const b=dv<=0?"pv":dv<=30?"d1":dv<=60?"d2":dv<=90?"d3":"d4"; T[b]+=s; nDocs++; }
+      } else { previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ El reporte no tiene ni "Edad de cartera", ni columnas de aging, ni "días vencidos"+"Saldo".</div>'; return; }
+    }
+    T.total=T.pv+T.d1+T.d2+T.d3+T.d4;
+    if(T.total<=0){ previewEl.innerHTML='<div style="color:#E03355;font-weight:700">❌ El total del aging dio 0 — revisá el reporte.</div>'; return; }
+    _cxpPreview={T, fmt, nDocs};
+    const _mil=v=>Math.round(v/1000).toLocaleString("en-US");
+    const mes=parseInt(gVal("cxp-mes"))||0, anio=parseInt(gVal("cxp-anio"))||2026;
+    previewEl.innerHTML=
+      '<div style="font-weight:700;color:var(--azul);margin-bottom:8px"><span style="color:#16A97A">✓</span> Reporte leído · '+nDocs+' docs · formato: <b>'+esc(fmt)+'</b></div>'+
+      '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;font-size:11px">'+
+      [["Por vencer",T.pv,"#2E6E85"],["1-30",T.d1,"#E8843C"],["31-60",T.d2,"#4E8C46"],["60-90",T.d3,"#52A0CC"],["+90",T.d4,"#8A5A9E"],["TOTAL",T.total,"#1A3756"]].map(x=>
+        '<div style="background:#fff;border-radius:6px;padding:8px;border-left:4px solid '+x[2]+'"><div style="font-size:9px;color:var(--grisMed);font-weight:700">'+x[0]+'</div><div style="font-size:14px;font-weight:800;color:'+x[2]+'">'+_mil(x[1])+'</div></div>').join("")+
+      '</div><div style="font-size:11px;color:var(--grisMed);margin-top:8px">En miles USD. Se guardará en <b>'+(MESES_N[mes]||"—")+' '+anio+'</b> del indicador TES-IND-003.</div>';
+    if(btn){ btn.disabled=false; btn.style.opacity="1"; }
+  }catch(e){ console.error("[cxpLeerExcel]",e); previewEl.innerHTML='<div style="color:#E03355">❌ Error al leer: '+esc(e.message)+'</div>'; }
+}
+window.cxpLeerExcel=cxpLeerExcel;
+
+async function cxpGuardar(){
+  try{
+    if(!_cxpPreview){ showError("Primero sube y valida un reporte."); return; }
+    const idEmpresa=parseInt(gVal("cxp-empresa")), mes=parseInt(gVal("cxp-mes")), anio=parseInt(gVal("cxp-anio"));
+    if(!idEmpresa||!mes||!anio){ showError("Selecciona empresa, mes y año."); return; }
+    const T=_cxpPreview.T; const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null;
+    const fuente=_cxpPreview.fmt.startsWith("Columnas")?"contifico":"acosux";
+    const payload={id_empresa:idEmpresa,anio,mes,por_vencer:T.pv,d1_30:T.d1,d31_60:T.d2,d61_90:T.d3,dmas90:T.d4,total:T.total,
+      fuente, fecha_corte:anio+"-"+String(mes).padStart(2,"0")+"-28", cargado_por:usuario, actualizado_en:new Date().toISOString()};
+    await sbUpsert("fin_cxp_mensual", payload, "id_empresa,anio,mes");
+    window._sbCache.fin_cxp_mensual = await sbQuery("fin_cxp_mensual",{select:"*",order:"anio.asc,mes.asc",limit:5000}).catch(()=>[]);
+    _cxpPreview=null;
+    (typeof showSuccess==="function")?showSuccess("✓ Aging CxP guardado · "+MESES_N[mes]+" "+anio):null;
+    renderContent();
+  }catch(e){ console.error("[cxpGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
+}
+window.cxpGuardar=cxpGuardar;
 
 // ═══════════════════════════════════════════════════════════════
 // CORRIDA DE PAGOS — Parser del reporte "Aprobar Pagos" (Acosux)
