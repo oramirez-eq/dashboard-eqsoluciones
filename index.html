@@ -8019,7 +8019,7 @@ async function conteoRecargar(){
   window._conteoCtx={emp,anio,mes,bodega:keepBod,busq:''};
   cont.innerHTML='<div style="padding:24px;text-align:center;color:var(--grisMed)">⏳ Cargando inventario…</div>';
   let rows=[];
-  try{ rows=await sbQueryPaginated("bod_saldo","select=id,bodega,grupo,producto,nombre,medida,sistema_cant,real_cant,factor_saco&id_empresa=eq."+emp+"&anio=eq."+anio+"&mes=eq."+mes+"&order=producto.asc",1000); }
+  try{ rows=await sbQueryPaginated("bod_saldo","select=id,bodega,grupo,producto,nombre,medida,sistema_cant,real_cant,factor_saco,reconteo_nota,reconteo_por,reconteo_en,reconteo_anterior&id_empresa=eq."+emp+"&anio=eq."+anio+"&mes=eq."+mes+"&order=producto.asc",1000); }
   catch(e){ console.error("[conteoRecargar]",e); cont.innerHTML='<div style="padding:20px;color:#E03355">Error al cargar: '+esc(e.message)+'</div>'; return; }
   window._conteoAll=rows;
   conteoRenderCont();
@@ -8044,8 +8044,17 @@ function conteoRenderCont(){
   });
   h+='</div></div>';
   if(ctx.bodega){
+    const rowsB=all.filter(r=>r.bodega===ctx.bodega), pend=rowsB.filter(r=>r.real_cant==null).length, cont=rowsB.length-pend;
+    if(pend>0&&!cerr){
+      h+='<button onclick="conteoCuadrarBodega()" style="width:100%;background:#E6F1FB;color:#185FA5;border:1px solid #85B7EB;border-radius:12px;padding:13px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">✓✓ Cuadrar toda la bodega <span style="font-weight:600;font-size:12px;opacity:0.85">('+pend+' pendientes = sistema)</span></button>'+
+        '<div style="text-align:center;font-size:11px;color:var(--grisMed);margin:9px 0">— o contá uno por uno —</div>';
+    }
+    const filtro=ctx.filtro||'todos';
+    const chip=(k,lbl,n,col)=>{ const on=filtro===k; return '<button onclick="conteoFiltro(\''+k+'\')" style="flex:1;padding:8px 4px;border-radius:8px;border:1px solid '+(on?'#16A0B8':'var(--borde)')+';background:'+(on?'#E6F7FA':'#fff')+';color:'+(on?'#0E7490':(col||'var(--grisMed)'))+';font-size:12px;font-weight:800;cursor:pointer">'+lbl+' '+n+'</button>'; };
     h+='<div style="position:sticky;top:0;background:#fff;padding:8px 0;z-index:5;border-bottom:1px solid var(--borde)">'+
-      '<input id="cnt-busq" class="form-input" placeholder="🔎 Buscar código o nombre…" value="'+esc(ctx.busq||'')+'" oninput="conteoBuscar(this.value)" style="font-size:16px;padding:12px"/></div>'+
+      '<input id="cnt-busq" class="form-input" placeholder="🔎 Buscar código o nombre…" value="'+esc(ctx.busq||'')+'" oninput="conteoBuscar(this.value)" style="font-size:16px;padding:12px"/>'+
+      '<div style="display:flex;gap:6px;margin-top:8px">'+chip('todos','Todos',rowsB.length)+chip('pend','Pendientes',pend,pend>0?'#B45309':null)+chip('cont','Contados',cont)+'</div>'+
+      '</div>'+
       '<div id="conteo-lista"></div>';
   } else {
     h+='<div style="padding:22px;text-align:center;color:var(--grisMed);font-size:13px">Tocá una bodega arriba para empezar a contar.</div>';
@@ -8065,13 +8074,17 @@ function conteoRenderLista(){
   const el=document.getElementById("conteo-lista"); if(!el) return;
   const ctx=window._conteoCtx||{}, all=window._conteoAll||[];
   const cerr=_bodCierre(ctx.emp,ctx.anio,ctx.mes);
-  const q=(ctx.busq||'').trim().toLowerCase();
-  let rows=all.filter(r=>r.bodega===ctx.bodega);
-  const totalBod=rows.length, contBod=rows.filter(r=>r.real_cant!=null).length;
+  const q=(ctx.busq||'').trim().toLowerCase(), filtro=ctx.filtro||'todos';
+  const bodRows=all.filter(r=>r.bodega===ctx.bodega);
+  const totalBod=bodRows.length, contBod=bodRows.filter(r=>r.real_cant!=null).length;
+  let rows=bodRows;
+  if(filtro==='pend') rows=rows.filter(r=>r.real_cant==null);
+  else if(filtro==='cont') rows=rows.filter(r=>r.real_cant!=null);
   if(q) rows=rows.filter(r=>(String(r.producto)+' '+String(r.nombre||'')).toLowerCase().includes(q));
   const _f0=v=>Math.round(v||0).toLocaleString("en-US");
   const CAP=300, shown=rows.slice(0,CAP);
-  let h='<div style="font-size:12px;color:var(--grisMed);margin:10px 0;font-weight:700">✓ '+contBod+' / '+totalBod+' contados'+(q?' · '+rows.length+' en la búsqueda':'')+(rows.length>CAP?' · mostrando '+CAP+', refiná la búsqueda':'')+'</div>';
+  const flabel=filtro==='pend'?' · solo pendientes':filtro==='cont'?' · solo contados':'';
+  let h='<div style="font-size:12px;color:var(--grisMed);margin:10px 0;font-weight:700">✓ '+contBod+' / '+totalBod+' contados'+flabel+(q?' · '+rows.length+' en la búsqueda':'')+(rows.length>CAP?' · mostrando '+CAP+' de '+rows.length+', refiná':'')+'</div>';
   shown.forEach(r=>{
     const fac=+r.factor_saco>1?+r.factor_saco:1;
     const sisC=_conteoSisConteo(r);
@@ -8082,7 +8095,8 @@ function conteoRenderLista(){
         '<span style="font-weight:800;color:#1E40AF;font-size:14px">'+esc(r.producto)+'</span>'+
         '<span id="cnt-st-'+r.id+'" style="font-size:11px;font-weight:800;color:'+(yaCont?'#16A97A':'#94A3B8')+'">'+(yaCont?'✓ contado':'• pendiente')+'</span>'+
       '</div>'+
-      '<div style="font-size:11px;color:var(--grisMed);margin:3px 0 9px;line-height:1.3">'+esc(r.nombre||'')+'</div>'+
+      '<div style="font-size:11px;color:var(--grisMed);margin:3px 0 '+(r.reconteo_en?'6px':'9px')+';line-height:1.3">'+esc(r.nombre||'')+'</div>'+
+      (r.reconteo_en?'<div title="Motivo: '+esc(r.reconteo_nota||'—')+' · por '+esc(r.reconteo_por||'—')+' · '+esc(String(r.reconteo_en).slice(0,10))+'" style="font-size:10px;color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:5px;padding:2px 8px;display:inline-block;margin-bottom:9px;cursor:help">🔁 Recontado: '+esc(String(r.reconteo_anterior))+' → '+esc(String(r.real_cant))+(r.reconteo_nota?' · '+esc(String(r.reconteo_nota).slice(0,40)):'')+'</div>':'')+
       '<div style="font-size:12px;color:var(--grisMed);margin-bottom:8px">Sistema: <b style="color:var(--azul);font-size:14px">'+_f0(sisC)+' '+esc(unidad)+'</b>'+(fac>1?' <span style="font-size:10px">('+_f0(r.sistema_cant)+' '+esc(r.medida||'KG')+' · saco ×'+fac+')</span>':'')+'</div>'+
       '<div style="display:flex;align-items:center;gap:8px">'+
         '<button '+(cerr?'disabled':'')+' onclick="conteoAdj('+r.id+',-1)" style="width:48px;height:48px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-size:24px;font-weight:800;color:#E03355;cursor:pointer;flex-shrink:0">−</button>'+
@@ -8092,9 +8106,11 @@ function conteoRenderLista(){
       '</div>'+
     '</div>';
   });
-  if(!shown.length) h+='<div style="padding:18px;text-align:center;color:var(--grisMed);font-size:13px">Ningún producto coincide con la búsqueda.</div>';
+  if(!shown.length) h+='<div style="padding:18px;text-align:center;color:var(--grisMed);font-size:13px">'+(filtro==='pend'?'🎉 No quedan pendientes en esta bodega.':filtro==='cont'?'Todavía no hay productos contados.':'Ningún producto coincide con la búsqueda.')+'</div>';
   el.innerHTML=h;
 }
+function conteoFiltro(f){ (window._conteoCtx=window._conteoCtx||{}).filtro=f; conteoRenderLista(); }
+window.conteoFiltro=conteoFiltro;
 
 function conteoAdj(id,delta){
   const inp=document.getElementById("cnt-in-"+id); if(!inp||inp.disabled) return;
@@ -8118,24 +8134,58 @@ function _conteoSave(id,now){
 
 async function _conteoGuardarGo(id){
   const inp=document.getElementById("cnt-in-"+id); if(!inp) return;
-  const ctx=window._conteoCtx||{}; const row=(window._conteoAll||[]).find(r=>r.id===id); if(!row) return;
+  const row=(window._conteoAll||[]).find(r=>r.id===id); if(!row) return;
   const raw=String(inp.value).trim();
   const val=raw===''?null:parseFloat(raw);
   if(raw!==''&&(isNaN(val)||val<0)){ _conteoStatus(id,'err'); return; }
+  const antes=row.real_cant;
+  // RECONTEO: cambiar un conteo YA registrado (no la primera vez) → pide motivo y se audita.
+  if(antes!=null && val!=null && val!==+antes){ conteoAbrirReconteo(id,+antes,val); return; }
+  await _conteoPatch(id,val,null);
+}
+
+async function _conteoPatch(id,val,rec){
+  const ctx=window._conteoCtx||{}, row=(window._conteoAll||[]).find(r=>r.id===id); if(!row) return;
   _conteoStatus(id,'saving');
+  const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
+  const body={real_cant:val,actualizado_en:nowIso,cargado_por:usuario};
+  if(rec){ body.reconteo_nota=rec.nota||null; body.reconteo_por=usuario; body.reconteo_en=nowIso; body.reconteo_anterior=rec.anterior; }
   try{
-    const r=await fetch(SUPA_URL+"/rest/v1/bod_saldo?id=eq."+id,{method:"PATCH",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"return=minimal"},
-      body:JSON.stringify({real_cant:val,actualizado_en:new Date().toISOString(),cargado_por:(typeof sesion!=="undefined"&&sesion?.email)||null})});
+    const r=await fetch(SUPA_URL+"/rest/v1/bod_saldo?id=eq."+id,{method:"PATCH",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify(body)});
     if(!r.ok) throw new Error("PATCH "+r.status);
     const antes=row.real_cant; row.real_cant=val;
-    // refresca el resumen del cache (Gerencial) por producto
+    if(rec){ row.reconteo_nota=body.reconteo_nota; row.reconteo_por=usuario; row.reconteo_en=nowIso; row.reconteo_anterior=rec.anterior;
+      try{ await supaPost("log_accesos",{email:usuario||"—",accion:"reconteo",detalle:("["+row.producto+"] "+ctx.bodega+" "+rec.anterior+"→"+val+(rec.nota?(" · "+rec.nota):"")+" · "+MESES_N[ctx.mes]+" "+ctx.anio).slice(0,240)}); }catch(e){ console.warn("[reconteo log]",e); } }
     (window._sbCache?.bod_saldo_resumen||[]).forEach(b=>{ if(b.id_empresa===ctx.emp&&b.anio===ctx.anio&&b.mes===ctx.mes&&b.producto===row.producto&&b.grupo===row.grupo) b.real_cant=val; });
     _conteoStatus(id, val==null?'pend':'ok');
-    // Si cambió el estado contado/no-contado, refresca el contador de la bodega
     if((antes==null)!==(val==null)) _conteoRefrescarContador();
-    if(id===0){} // noop
-  }catch(e){ console.error("[conteoGuardar]",e); _conteoStatus(id,'err'); }
+    if(rec) conteoRenderLista();
+  }catch(e){ console.error("[conteoPatch]",e); _conteoStatus(id,'err'); }
 }
+
+function conteoAbrirReconteo(id,antes,val){
+  const row=(window._conteoAll||[]).find(r=>r.id===id);
+  _conteoStatus(id,'pend2');
+  openModal('<div class="modal-box"><button class="modal-close" onclick="conteoRecontarCancel('+id+','+antes+')">✕</button>'+
+    '<div class="modal-title">🔁 Reconteo de inventario</div>'+
+    '<div class="modal-sub" style="margin-bottom:10px">'+esc(row?.producto||'')+' · '+esc(row?.nombre||'')+'</div>'+
+    '<div style="background:#F8FAFC;border:1px solid var(--borde);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:14px;text-align:center">Conteo anterior <b style="color:#E03355">'+antes+'</b> &nbsp;→&nbsp; nuevo <b style="color:#16A97A">'+val+'</b></div>'+
+    '<div style="font-size:11px;color:#92400E;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Estás cambiando un conteo <b>ya registrado</b>. Este reconteo queda en el <b>log de auditoría</b> (quién, cuándo, valor anterior → nuevo) y se marca en el producto. Usalo cuando se solicita un <b>procedimiento de reconteo</b> por una desviación difícil de creer.</div>'+
+    '<label class="form-label">Motivo del reconteo</label>'+
+    '<textarea id="recont-motivo" class="form-input" rows="2" placeholder="Ej: desviación reportada por Contabilidad, reconteo solicitado y verificado en sitio…" style="width:100%;resize:vertical"></textarea>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="conteoRecontarCancel('+id+','+antes+')">Cancelar</button><button class="btn-save" onclick="_conteoRecontarGo('+id+','+antes+','+val+')">🔁 Registrar reconteo</button></div></div>');
+}
+window.conteoAbrirReconteo=conteoAbrirReconteo;
+
+function conteoRecontarCancel(id,antes){ closeModal(); const inp=document.getElementById("cnt-in-"+id); if(inp) inp.value=antes; _conteoStatus(id,'ok'); }
+window.conteoRecontarCancel=conteoRecontarCancel;
+
+async function _conteoRecontarGo(id,antes,val){
+  const nota=(document.getElementById("recont-motivo")?.value||"").trim();
+  closeModal();
+  await _conteoPatch(id,val,{anterior:antes,nota});
+}
+window._conteoRecontarGo=_conteoRecontarGo;
 
 function _conteoStatus(id,st){
   const s=document.getElementById("cnt-st-"+id), row=document.getElementById("cnt-row-"+id);
@@ -8151,6 +8201,40 @@ function _conteoRefrescarContador(){
     el.firstChild.innerHTML='✓ '+c+' / '+rows.length+' contados';
   }
 }
+
+// Cuadrar toda la bodega: marca los productos PENDIENTES (sin conteo) como real = sistema.
+// Nunca pisa lo ya contado a mano → podés cuadrar primero y ajustar excepciones después.
+function conteoCuadrarBodega(){
+  const ctx=window._conteoCtx||{}, all=window._conteoAll||[];
+  if(_bodCierre(ctx.emp,ctx.anio,ctx.mes)){ showError("El mes está cerrado — solo lectura."); return; }
+  const pend=all.filter(r=>r.bodega===ctx.bodega && r.real_cant==null);
+  if(!pend.length){ showError("No hay productos pendientes en esta bodega."); return; }
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">✓✓ Cuadrar toda la bodega '+esc(ctx.bodega)+'</div>'+
+    '<div class="modal-sub" style="margin-bottom:14px">Se marcarán los <b>'+pend.length+' productos pendientes</b> con <b>conteo = sistema</b> (asumís que cuadran). Los que ya contaste a mano <b>no se tocan</b>. Después podés ajustar las excepciones una a una.</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" onclick="_conteoCuadrarGo()">✓✓ Cuadrar '+pend.length+' productos</button></div></div>');
+}
+window.conteoCuadrarBodega=conteoCuadrarBodega;
+
+async function _conteoCuadrarGo(){
+  closeModal();
+  const ctx=window._conteoCtx||{}, all=window._conteoAll||[];
+  const pend=all.filter(r=>r.bodega===ctx.bodega && r.real_cant==null);
+  if(!pend.length) return;
+  const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
+  const payload=pend.map(r=>({id_empresa:ctx.emp,anio:ctx.anio,mes:ctx.mes,bodega:r.bodega,producto:r.producto,
+    real_cant:_conteoSisConteo(r),actualizado_en:nowIso,cargado_por:usuario}));
+  try{
+    await _bodUpsert(payload);
+    const setMap={}; payload.forEach(p=>{ setMap[p.producto]=p.real_cant; });
+    pend.forEach(r=>{ r.real_cant=setMap[r.producto]; });
+    (window._sbCache?.bod_saldo_resumen||[]).forEach(b=>{ if(b.id_empresa===ctx.emp&&b.anio===ctx.anio&&b.mes===ctx.mes&&b.real_cant==null&&setMap[b.producto]!=null) b.real_cant=setMap[b.producto]; });
+    await _logCarga("BOD-IND-001 Conteo · cuadró "+pend.length+" pendientes = sistema · "+ctx.bodega+" · "+MESES_N[ctx.mes]+" "+ctx.anio);
+    (typeof showSuccess==="function")?showSuccess("✓ "+pend.length+" productos cuadrados (= sistema)"):null;
+    conteoRenderCont();
+  }catch(e){ console.error("[conteoCuadrar]",e); showError("Error al cuadrar: "+(e?.message||e)); }
+}
+window._conteoCuadrarGo=_conteoCuadrarGo;
 
 // ═══════════════════════════════════════════════════════════════
 // CORRIDA DE PAGOS — Parser del reporte "Aprobar Pagos" (Acosux)
