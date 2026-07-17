@@ -1248,15 +1248,16 @@ async function cargarDBResto(){
     const fin_cxp_mensual = await q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
     // BOD-IND-001 Confiabilidad de Inventarios — resumen ligero (solo columnas para el
     // rollup Gerencial: la vista de detalle recarga producto a producto bajo demanda).
-    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,sistema_cant,costo,real_cant,factor_saco&order=anio.asc,mes.asc").catch(()=>[]);
+    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,producto,sistema_cant,costo,real_cant,factor_saco&order=anio.asc,mes.asc").catch(()=>[]);
     const bod_cierre = await q("bod_cierre", {select:"*", order:"anio.desc,mes.desc", limit:2000}).catch(()=>[]);
+    const bod_factor_config = await q("bod_factor_config", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
-      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen, bod_cierre,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen, bod_cierre, bod_factor_config,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -5785,7 +5786,7 @@ function renderConfiabilidadHTML(rows, emp, anio, mes){
   html+='<div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:11px 14px;margin-bottom:12px;font-size:12px;color:#1E40AF;display:flex;align-items:flex-start;gap:8px">'+
     '<span style="font-size:16px;line-height:1">ℹ️</span><span><b>Importante:</b> la confiabilidad se calcula <b>únicamente sobre los productos con conteo físico</b>. Los productos sin conteo <b>no participan</b> — no se asumen correctos. Cobertura del mes: <b>'+_totC+' de '+_totP+' productos ('+_covPct+'%)</b>. Revisá la cobertura por grupo: una muestra parcial no representa toda la bodega.</span></div>';
   html+='<div style="font-size:11px;color:var(--grisMed);margin-bottom:12px"><span style="display:inline-block;width:11px;height:11px;background:#BFBFBF;border-radius:2px;vertical-align:middle"></span> Confiable (Sin Variación) &nbsp; <span style="display:inline-block;width:11px;height:11px;background:#ED7D31;border-radius:2px;vertical-align:middle"></span> Variación (Con Variación) &nbsp;·&nbsp; meta ≥ 98%</div>';
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px">';
+  html+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px">';
   grupos.forEach(g=>{
     const d=G[g]; const hay=d.nConteo>0;
     const _clip=v=>Math.max(0,Math.min(100,v));
@@ -5929,6 +5930,7 @@ function renderIngresoDatos(){
     {id:"cartera-cxp", icon:"📉", label:"Edades CxP (Cartera x Pagar)", cat:"FIN", gate:"Finanzas"},
     {id:"bod-saldo",   icon:"📦", label:"Saldo Bodega (Sistema)", cat:"ABAS", gate:"Abastecimiento"},
     {id:"bod-fisico",  icon:"📋", label:"Conteo Físico",          cat:"ABAS", gate:"Abastecimiento"},
+    {id:"bod-factor",  icon:"⚖️", label:"Conversiones (Sacos)",   cat:"ABAS", gate:"Abastecimiento"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -6439,6 +6441,53 @@ function renderIngresoDatos(){
       '<button class="submit-btn" id="bodf-btn-guardar" onclick="bodFisicoGuardar()" disabled style="opacity:0.5">💾 Guardar Conteo</button>'+
       '<span style="font-size:11px;color:var(--grisMed)">Requiere que el SISTEMA del mes esté cargado</span></div>'+
       '</div>';
+
+  } else if(ingresoTab==="bod-factor"){
+    // ── Conversiones de unidad (Sacos) — registro administrable de factor_saco ──
+    const cacheBF=window._sbCache||{};
+    const fEmpBF=window._bodFacEmp||2, editBF=window._bodFacEdit||null;
+    const empOptsBF=(cacheBF.empresas||[]).filter(e=>e.codigo!=='EQSOLUTIONS'&&e.activo)
+      .map(e=>'<option value="'+e.id+'"'+(e.id===fEmpBF?" selected":"")+'>'+esc(e.nombre)+' ('+esc(e.codigo)+')</option>').join("");
+    const cfgsBF=(cacheBF.bod_factor_config||[]).filter(c=>c.id_empresa===fEmpBF).sort((a,b)=>String(a.producto).localeCompare(String(b.producto)));
+    const edBF=editBF?cfgsBF.find(c=>c.id===editBF):null;
+    html += '<div class="ingreso-form">'+
+      '<div class="ingreso-form-title">⚖️ Conversiones de Unidad (Sacos) — BOD-IND-001</div>'+
+      '<div class="ingreso-form-sub">Productos cuyo <b>conteo físico</b> se hace en una unidad distinta al sistema (ej. balanceado en <b>sacos de 25 kg</b>, el sistema Acosux en KG). El <b>factor</b> = unidades base (KG) por saco. Al guardar se aplica a <b>todos los meses cargados</b>; el físico se convierte <b>real × factor</b> para comparar contra el sistema.</div>'+
+      '<div class="form-grid" style="grid-template-columns:repeat(5,1fr);gap:10px">'+
+        '<div class="form-group"><label class="form-label">Empresa</label><select id="bodfac-empresa" class="form-select" onchange="window._bodFacEmp=parseInt(this.value);window._bodFacEdit=null;renderContent()">'+empOptsBF+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Producto (código)</label><input id="bodfac-prod" class="form-input" placeholder="Ej: BALHAICAM004" value="'+esc(edBF?edBF.producto:'')+'"'+(edBF?' readonly style="background:#F1F5F9"':'')+'/></div>'+
+        '<div class="form-group"><label class="form-label">Nombre (referencia)</label><input id="bodfac-nombre" class="form-input" placeholder="opcional" value="'+esc(edBF?(edBF.nombre||''):'')+'"/></div>'+
+        '<div class="form-group"><label class="form-label">Factor (kg/saco)</label><input id="bodfac-factor" type="number" step="0.01" min="0" class="form-input" placeholder="25" value="'+(edBF&&edBF.factor!=null?esc(String(edBF.factor)):'')+'"/></div>'+
+        '<div class="form-group"><label class="form-label">Unidad de conteo</label><input id="bodfac-unidad" class="form-input" placeholder="Saco 25 kg" value="'+esc(edBF?(edBF.unidad_conteo||''):'')+'"/></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:12px;align-items:center;margin-top:12px">'+
+        '<button class="submit-btn" onclick="bodFacGuardar()">💾 '+(edBF?'Actualizar':'Agregar')+' conversión</button>'+
+        (edBF?'<button onclick="window._bodFacEdit=null;renderContent()" style="background:transparent;border:1px solid var(--grisMed);color:var(--grisMed);padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Cancelar edición</button>':'')+
+        '<span style="font-size:11px;color:var(--grisMed)">El factor se aplica a la confiabilidad al instante</span>'+
+      '</div>'+
+    '</div>';
+    html += '<div class="ingreso-recientes" style="margin-top:14px">';
+    html += '<div class="section-title">Conversiones configuradas · '+cfgsBF.length+'</div>';
+    if(!cfgsBF.length){
+      html += '<div style="font-size:12px;color:var(--grisMed);padding:14px;text-align:center">Sin conversiones para esta empresa. Los productos sin conversión se comparan en la unidad del sistema (factor 1).</div>';
+    } else {
+      html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">'+
+        ['PRODUCTO','NOMBRE','FACTOR','UNIDAD DE CONTEO','ACCIÓN'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===2?';text-align:center':i===4?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
+      cfgsBF.forEach(c=>{
+        html += '<tr style="border-bottom:1px solid var(--borde)">'+
+          '<td style="padding:6px 8px;font-weight:700;color:#1E40AF">'+esc(c.producto)+'</td>'+
+          '<td style="padding:6px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.nombre||'')+'">'+esc(c.nombre||'—')+'</td>'+
+          '<td style="padding:6px 8px;text-align:center;font-weight:700">×'+esc(String(c.factor))+'</td>'+
+          '<td style="padding:6px 8px">'+esc(c.unidad_conteo||'—')+'</td>'+
+          '<td style="padding:6px 8px;text-align:right;white-space:nowrap">'+
+            '<button onclick="window._bodFacEdit='+c.id+';renderContent()" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:6px">✏️ Editar</button>'+
+            '<button onclick="bodFacEliminar('+c.id+')" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🗑 Quitar</button>'+
+          '</td>'+
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '</div>';
 
   } else if(ingresoTab==="rrhh-rot"){
     // ── Tab Rotación · Listado de Empleados (modelo granular ACOSUX) ──
@@ -7812,8 +7861,10 @@ async function bodSaldoGuardar(){
     if(_cerr){ showError("🔒 "+MESES_N[mes]+" "+anio+" está CERRADO (por "+(_cerr.cerrado_por||"—")+"). Un administrador debe reabrirlo para poder cargar."); return; }
     const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
     const fc=anio+"-"+String(mes).padStart(2,"0")+"-28";
+    // Aplica la config de conversiones (sacos) al producto, si existe.
+    const facCfg={}; (window._sbCache?.bod_factor_config||[]).forEach(c=>{ if(c.id_empresa===idEmpresa&&c.activo!==false) facCfg[c.producto]=+c.factor||1; });
     const payload=_bodPreview.list.map(p=>({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,grupo:p.grupo,producto:p.producto,nombre:p.nombre,medida:p.medida,
-      sistema_cant:p.stock,costo:p.costo,sistema_total:p.total,fecha_corte:fc,fuente:"acosux",cargado_por:usuario,actualizado_en:nowIso}));
+      sistema_cant:p.stock,costo:p.costo,sistema_total:p.total,factor_saco:(facCfg[p.producto]>1?facCfg[p.producto]:undefined),fecha_corte:fc,fuente:"acosux",cargado_por:usuario,actualizado_en:nowIso}));
     await _bodUpsert(payload);
     await _logCarga("BOD-IND-001 Saldo Bodega (Sistema) · "+payload.length+" productos · "+MESES_N[mes]+" "+anio);
     _bodPreview=null;
@@ -7863,12 +7914,13 @@ async function bodFisicoGuardar(){
     const sis=await sbQueryPaginated("bod_saldo","select=bodega,producto,sistema_cant,factor_saco&id_empresa=eq."+idEmpresa+"&anio=eq."+anio+"&mes=eq."+mes,1000);
     if(!sis.length){ showError("No hay SISTEMA cargado para "+MESES_N[mes]+" "+anio+". Cargá primero el Saldo Bodega."); return; }
     const sisMap={}; sis.forEach(r=>{ sisMap[r.bodega+"|"+r.producto]={s:+r.sistema_cant||0, f:r.factor_saco}; });
+    // Config de conversiones (sacos): tiene prioridad sobre la detección automática.
+    const facCfg={}; (window._sbCache?.bod_factor_config||[]).forEach(c=>{ if(c.id_empresa===idEmpresa&&c.activo!==false) facCfg[c.producto]=+c.factor||1; });
     const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
     const payload=[]; let match=0, nSaco=0;
     _bodfPreview.list.forEach(p=>{ const k=p.bodega+"|"+p.producto; const m=sisMap[k]; if(m){ match++;
-      // Detección de conteo en SACOS: si el sistema/físico ≈ entero grande (≥10), el físico
-      // se contó en sacos → se guarda el factor para convertirlo. Respeta el factor ya guardado.
-      let fac=m.f!=null?+m.f:null;
+      // Prioridad: config (sacos) → factor ya guardado → detección automática (ratio ≥10 limpio).
+      let fac=facCfg[p.producto]>1?facCfg[p.producto]:(m.f!=null?+m.f:null);
       if(fac==null && p.stock>0 && m.s>0 && m.s/p.stock>=10){ const rr=m.s/p.stock, kk=Math.round(rr); if(kk>=10 && Math.abs(rr-kk)/kk<0.02) fac=kk; }
       if(fac>1) nSaco++;
       payload.push({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,producto:p.producto,real_cant:p.stock,factor_saco:(fac!=null?fac:null),actualizado_en:nowIso,cargado_por:usuario}); } });
@@ -7881,6 +7933,66 @@ async function bodFisicoGuardar(){
   }catch(e){ console.error("[bodFisicoGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
 }
 window.bodFisicoGuardar=bodFisicoGuardar;
+
+// ── Conversiones de unidad (Sacos) · CRUD de bod_factor_config ──────────
+// Registro administrable: al guardar, aplica el factor a bod_saldo.factor_saco
+// (todos los meses de la empresa/producto) y refresca el cache al instante.
+async function bodFacGuardar(){
+  try{
+    const idEmpresa=window._bodFacEmp||parseInt(gVal("bodfac-empresa"))||2;
+    const producto=(gVal("bodfac-prod")||"").trim();
+    const nombre=(gVal("bodfac-nombre")||"").trim();
+    const factor=parseFloat(gVal("bodfac-factor"));
+    const unidad=(gVal("bodfac-unidad")||"").trim();
+    if(!producto){ showError("Ingresá el código del producto."); return; }
+    if(!(factor>0)){ showError("El factor debe ser un número mayor a 0 (ej. 25)."); return; }
+    const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
+    const data={id_empresa:idEmpresa,producto,nombre:nombre||null,factor,unidad_conteo:unidad||null,activo:true,actualizado_por:usuario,actualizado_en:nowIso};
+    const res=await sbUpsert("bod_factor_config",data,"id_empresa,producto");
+    const saved=Array.isArray(res)?res[0]:res;
+    // Aplica a bod_saldo.factor_saco (todos los meses de esa empresa/producto)
+    await fetch(SUPA_URL+"/rest/v1/bod_saldo?id_empresa=eq."+idEmpresa+"&producto=eq."+encodeURIComponent(producto),
+      {method:"PATCH",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({factor_saco:factor})});
+    // Refresca cache: config + factor_saco en el resumen
+    const cache=window._sbCache||{};
+    cache.bod_factor_config=cache.bod_factor_config||[];
+    const i=cache.bod_factor_config.findIndex(c=>c.id_empresa===idEmpresa&&c.producto===producto);
+    const row=saved||{...data,id:(i>=0?cache.bod_factor_config[i].id:undefined)};
+    if(i>=0) cache.bod_factor_config[i]=row; else cache.bod_factor_config.push(row);
+    (cache.bod_saldo_resumen||[]).forEach(b=>{ if(b.id_empresa===idEmpresa&&b.producto===producto) b.factor_saco=factor; });
+    window._bodFacEdit=null;
+    await _logCarga("BOD-IND-001 Conversión saco · "+producto+" ×"+factor);
+    (typeof showSuccess==="function")?showSuccess("✓ Conversión guardada · "+producto+" ×"+factor):null;
+    renderContent();
+  }catch(e){ console.error("[bodFacGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
+}
+window.bodFacGuardar=bodFacGuardar;
+
+function bodFacEliminar(id){
+  const c=(window._sbCache?.bod_factor_config||[]).find(x=>x.id===id);
+  if(!c){ showError("No se encontró la conversión."); return; }
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🗑 Quitar conversión</div>'+
+    '<div class="modal-sub" style="margin-bottom:14px">Se quita la conversión de <b>'+esc(c.producto)+'</b> (×'+esc(String(c.factor))+'). El físico de ese producto volverá a compararse en la unidad del sistema (factor 1).</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" style="background:#E03355" onclick="_bodFacEliminarGo('+id+')">🗑 Quitar</button></div></div>');
+}
+window.bodFacEliminar=bodFacEliminar;
+
+async function _bodFacEliminarGo(id){
+  closeModal();
+  try{
+    const cache=window._sbCache||{};
+    const c=(cache.bod_factor_config||[]).find(x=>x.id===id); if(!c) return;
+    await fetch(SUPA_URL+"/rest/v1/bod_factor_config?id=eq."+id,{method:"DELETE",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY}});
+    await fetch(SUPA_URL+"/rest/v1/bod_saldo?id_empresa=eq."+c.id_empresa+"&producto=eq."+encodeURIComponent(c.producto),
+      {method:"PATCH",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({factor_saco:null})});
+    cache.bod_factor_config=(cache.bod_factor_config||[]).filter(x=>x.id!==id);
+    (cache.bod_saldo_resumen||[]).forEach(b=>{ if(b.id_empresa===c.id_empresa&&b.producto===c.producto) b.factor_saco=null; });
+    (typeof showSuccess==="function")?showSuccess("✓ Conversión quitada · "+c.producto):null;
+    renderContent();
+  }catch(e){ console.error("[bodFacEliminar]",e); showError("Error al quitar: "+(e?.message||e)); }
+}
+window._bodFacEliminarGo=_bodFacEliminarGo;
 
 // ═══════════════════════════════════════════════════════════════
 // CORRIDA DE PAGOS — Parser del reporte "Aprobar Pagos" (Acosux)
