@@ -1248,14 +1248,15 @@ async function cargarDBResto(){
     const fin_cxp_mensual = await q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
     // BOD-IND-001 Confiabilidad de Inventarios — resumen ligero (solo columnas para el
     // rollup Gerencial: la vista de detalle recarga producto a producto bajo demanda).
-    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,sistema_cant,costo,real_cant&order=anio.asc,mes.asc").catch(()=>[]);
+    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,sistema_cant,costo,real_cant,factor_saco&order=anio.asc,mes.asc").catch(()=>[]);
+    const bod_cierre = await q("bod_cierre", {select:"*", order:"anio.desc,mes.desc", limit:2000}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
       eq_resultado_mensual, eq_tienda_map, eq_cartera_periodo,
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
-      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen, bod_cierre,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2442,10 +2443,11 @@ function getKPIResumen(){
       const G = {};
       bodAll.filter(b=>b.mes===mesBod).forEach(b=>{
         const g = b.grupo || "Otros"; (G[g] = G[g] || {sis:0,dif:0,nc:0});
-        const s = +b.sistema_cant||0; G[g].sis += s;
-        if(b.real_cant!=null){ G[g].dif += Math.abs(s-(+b.real_cant||0)); G[g].nc++; }
+        // Solo productos con conteo físico participan (denominador = sistema de lo contado).
+        if(b.real_cant!=null){ const s=+b.sistema_cant||0, fac=+b.factor_saco>1?+b.factor_saco:1;
+          G[g].sis += s; G[g].dif += Math.abs(s-(+b.real_cant||0)*fac); G[g].nc++; }
       });
-      const confs = Object.values(G).filter(g=>g.nc>0 && g.sis>0).map(g=>(1-g.dif/g.sis)*100);
+      const confs = Object.values(G).filter(g=>g.nc>0 && g.sis>0).map(g=>Math.max(0,Math.min(100,(1-g.dif/g.sis)*100)));
       if(confs.length){
         const conf = confs.reduce((s,x)=>s+x,0)/confs.length;
         byInd[aba005.id] = {id_indicador:aba005.id, id_empresa:emp.id, anio:anioLive, mes:mesBod,
@@ -5668,6 +5670,8 @@ function _bodUnidad(g){ return g==="Combustibles"?"Galones":"Unidades"; }
 function _bodRatingPct(p){ return p>=98?"Excelente":p>=95?"Muy Bueno":p>=90?"Bueno":p>=71?"Regular":"Malo"; }
 function _bodRatingUsd(v){ return v<50?"Excelente":v<=100?"Bueno":v<=149?"Regular":"Malo"; }
 function _bodColor(r){ return {"Excelente":"#16A97A","Muy Bueno":"#4CAF50","Bueno":"#D4A012","Regular":"#F07000","Malo":"#E03355"}[r]||"#6B87A8"; }
+// Cierre de mes (congelado) del indicador de Confiabilidad — devuelve la fila de bod_cierre o null.
+function _bodCierre(empId,anio,mes){ return (window._sbCache?.bod_cierre||[]).find(c=>c.id_empresa===empId&&c.anio===anio&&c.mes===mes)||null; }
 
 function renderAbastecimiento(){
   return '<div id="abast-container"><div class="card" style="padding:32px;text-align:center;color:var(--grisMed)">⏳ Cargando confiabilidad de inventarios...</div></div>';
@@ -5698,12 +5702,29 @@ window.loadAbastecimiento=loadAbastecimiento;
 
 function renderConfiabilidadHTML(rows, emp, anio, mes){
   const puedeIngr=["eq_admin","eq_lider","gestor_kpi"].includes(sesion?.rol);
+  const cierre=_bodCierre(emp.id,anio,mes), esAdmin=(sesion?.rol==="eq_admin");
+  const _fechaCierre=c=>{ try{ return new Date(c.cerrado_en).toLocaleDateString("es-EC",{day:"2-digit",month:"long",year:"numeric"}); }catch(e){ return c.cerrado_en||"—"; } };
+  let acciones='';
+  if(cierre){
+    acciones='<div style="display:flex;align-items:center;gap:8px">'+
+      '<span style="font-size:11px;font-weight:700;color:#16A97A;background:#16A97A18;border:1px solid #16A97A40;border-radius:6px;padding:6px 10px">🔒 Mes cerrado</span>'+
+      (esAdmin?'<button onclick="reabrirMesBod('+emp.id+','+anio+','+mes+')" style="padding:6px 12px;font-size:11px;border:1px solid var(--grisMed);color:var(--grisMed);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">🔓 Reabrir</button>':'')+
+    '</div>';
+  } else if(puedeIngr){
+    acciones='<div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="irAIngreso(\'bod-saldo\')" style="padding:8px 14px;font-size:11px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📥 Cargar Saldo Bodega</button>'+
+      '<button onclick="irAIngreso(\'bod-fisico\')" style="padding:8px 14px;font-size:11px;border:1px solid var(--azul);color:var(--azul);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📋 Cargar Conteo Físico</button>'+
+      '<button onclick="abrirCierreMesBod()" title="Congela la Confiabilidad del mes para evitar cambios" style="padding:8px 14px;font-size:11px;border:1px solid #16A97A;color:#16A97A;background:transparent;border-radius:6px;cursor:pointer;font-weight:700">🔒 Cerrar mes</button></div>';
+  }
   let html='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">'+
     '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">📦 Confiabilidad de Inventarios — '+esc(emp.nombre)+'</div>'+
     '<div style="font-size:11px;color:var(--grisMed)">BOD-IND-001 · '+MESES_N[mes]+' '+anio+' · corte al último día del mes</div></div>'+
-    (puedeIngr?'<div style="display:flex;gap:8px"><button onclick="irAIngreso(\'bod-saldo\')" style="padding:8px 14px;font-size:11px;border:1px solid var(--tq);color:var(--tq);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📥 Cargar Saldo Bodega</button>'+
-    '<button onclick="irAIngreso(\'bod-fisico\')" style="padding:8px 14px;font-size:11px;border:1px solid var(--azul);color:var(--azul);background:transparent;border-radius:6px;cursor:pointer;font-weight:700">📋 Cargar Conteo Físico</button></div>':'')+
-    '</div>';
+    acciones+'</div>';
+  if(cierre){
+    html+='<div style="background:#F0FDF4;border:1px solid #16A97A55;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#166534;display:flex;align-items:flex-start;gap:8px">'+
+      '<span style="font-size:16px;line-height:1">🔒</span><span>Mes <b>cerrado</b> el <b>'+_fechaCierre(cierre)+'</b> por <b>'+esc(cierre.cerrado_por||"—")+'</b>'+
+      (cierre.confiabilidad_prom!=null?' · confiabilidad promedio al cierre <b>'+(+cierre.confiabilidad_prom).toFixed(1)+'%</b>':'')+
+      '. Los datos de este mes están <b>congelados</b>; para modificarlos, un administrador debe reabrirlo.</span></div>';
+  }
   if(!rows.length){
     return html+'<div class="card" style="text-align:center;padding:40px"><div style="font-size:34px">📦</div>'+
       '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;margin-top:10px">Sin datos de inventario para '+MESES_N[mes]+' '+anio+'</div>'+
@@ -5714,43 +5735,83 @@ function renderConfiabilidadHTML(rows, emp, anio, mes){
   const G={};
   rows.forEach(r=>{
     const g=r.grupo||_bodGrupo(r.bodega);
-    if(!G[g]) G[g]={sisCant:0,sisUsd:0,varAbsCant:0,varAbsUsd:0,nProd:0,nConteo:0};
-    const s=+r.sistema_cant||0, real=r.real_cant, costo=+r.costo||0;
-    G[g].sisCant+=s; G[g].sisUsd+=(+r.sistema_total|| s*costo); G[g].nProd++;
-    if(real!=null){ G[g].nConteo++; G[g].varAbsCant+=Math.abs(s-real); G[g].varAbsUsd+=Math.abs((s-real)*costo); }
+    if(!G[g]) G[g]={sisCant:0,sisUsd:0,sisCantCont:0,sisUsdCont:0,varAbsCant:0,varAbsUsd:0,nProd:0,nConteo:0,nSaco:0,factorSaco:0};
+    const s=+r.sistema_cant||0, costo=+r.costo||0, su=(+r.sistema_total|| s*costo);
+    // Si el físico se contó en sacos (factor_saco>1), se convierte a la unidad base del sistema.
+    const fac=+r.factor_saco>1?+r.factor_saco:1;
+    const real=r.real_cant!=null?(+r.real_cant*fac):null;
+    G[g].sisCant+=s; G[g].sisUsd+=su; G[g].nProd++;
+    // La confiabilidad SOLO considera productos con conteo físico: el sistema de los NO contados
+    // NO entra al denominador (no se asumen correctos). sisCant/sisUsd = todo (para cobertura).
+    if(real!=null){ G[g].nConteo++; G[g].sisCantCont+=s; G[g].sisUsdCont+=su;
+      G[g].varAbsCant+=Math.abs(s-real); G[g].varAbsUsd+=Math.abs((s-real)*costo);
+      if(fac>1){ G[g].nSaco++; G[g].factorSaco=fac; } }
   });
   const grupos=BOD_GRUPO_ORDEN.filter(g=>G[g]).concat(Object.keys(G).filter(g=>!BOD_GRUPO_ORDEN.includes(g)));
   window._bodGruposAgg=G; window._bodGruposList=grupos;
   const _f0=v=>Math.round(v||0).toLocaleString("en-US");
-  const _f$=v=>"$"+Math.round(v||0).toLocaleString("en-US");
-  // Barra horizontal apilada estilo Facundo: gris = Confiable, naranja = Variación.
+  const _f2=v=>(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const _f$=v=>"$"+(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const diaCorte=new Date(anio,mes,0).getDate();
+  const fechaCorte="Al "+diaCorte+" de "+MESES_N[mes]+" de "+anio;
+  // Barra 0–100% estilo Facundo (gris = Confiable/Sin Variación, naranja = Variación/Con Variación)
+  // con eje X explícito 0%..100% debajo.
   const bar=(pct)=>{ const c=Math.max(0,Math.min(100,pct)), v=100-c;
-    return '<div style="display:flex;height:24px;border-radius:4px;overflow:hidden;border:1px solid var(--borde);width:100%">'+
-      '<div style="width:'+c+'%;background:#BFBFBF;display:flex;align-items:center;justify-content:center;color:#2b2b2b;font-size:11px;font-weight:800;white-space:nowrap">'+(c>=14?c.toFixed(1)+'%':'')+'</div>'+
-      '<div style="width:'+v+'%;background:#ED7D31;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;white-space:nowrap">'+(v>=8?v.toFixed(1)+'%':'')+'</div></div>'; };
-  const badge=(r)=>{ const c=_bodColor(r); return '<span class="kpi-badge" style="background:'+c+'18;color:'+c+';border:1px solid '+c+'40;font-size:9px;padding:2px 7px;white-space:nowrap">'+r+'</span>'; };
-  html+='<div style="font-size:11px;color:var(--grisMed);margin-bottom:12px"><span style="display:inline-block;width:11px;height:11px;background:#BFBFBF;border-radius:2px;vertical-align:middle"></span> Confiable &nbsp; <span style="display:inline-block;width:11px;height:11px;background:#ED7D31;border-radius:2px;vertical-align:middle"></span> Variación &nbsp;·&nbsp; meta ≥ 98%</div>';
-  html+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">';
+    return '<div>'+
+      '<div style="display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--borde);width:100%">'+
+        '<div style="width:'+c+'%;background:#BFBFBF;display:flex;align-items:center;justify-content:center;color:#2b2b2b;font-size:10px;font-weight:800;white-space:nowrap">'+(c>=14?c.toFixed(1)+'%':'')+'</div>'+
+        '<div style="width:'+v+'%;background:#ED7D31;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:800;white-space:nowrap">'+(v>=10?v.toFixed(1)+'%':'')+'</div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:8px;color:var(--grisMed);margin-top:2px">'+
+        [0,20,40,60,80,100].map(t=>'<span>'+t+'%</span>').join('')+'</div></div>'; };
+  const badge=(r)=>{ const c=_bodColor(r); return '<span class="kpi-badge" style="background:'+c+'18;color:'+c+';border:1px solid '+c+'40;font-size:9px;padding:2px 8px;white-space:nowrap">'+r+'</span>'; };
+  // Columna estilo Excel: tabla Sistema/Variación (valor + %) + badge de resultado + barra 0–100%.
+  const colBlock=(titulo,unidadLabel,sisVal,varVal,conf,rating,money)=>{
+    const fmt=money?_f$:_f2, varPct=100-conf;
+    return '<div>'+
+      '<div style="font-size:11px;font-weight:800;color:var(--azul);text-align:center;margin-bottom:6px">'+titulo+'</div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">'+
+        '<tr><td style="padding:3px 4px;border-bottom:1px solid var(--borde);color:var(--grisMed)">'+unidadLabel+' Sistema</td>'+
+          '<td style="padding:3px 4px;border-bottom:1px solid var(--borde);text-align:right;font-weight:700">'+fmt(sisVal)+'</td>'+
+          '<td style="padding:3px 4px;border-bottom:1px solid var(--borde);text-align:right;color:var(--grisMed)">100.00%</td></tr>'+
+        '<tr><td style="padding:3px 4px;color:var(--grisMed)">Variación</td>'+
+          '<td style="padding:3px 4px;text-align:right;font-weight:700">'+(varVal>0?fmt(varVal):(money?'$ -':'-'))+'</td>'+
+          '<td style="padding:3px 4px;text-align:right;color:'+(varPct>2?'#ED7D31':'var(--grisMed)')+'">'+varPct.toFixed(2)+'%</td></tr>'+
+      '</table>'+
+      '<div style="display:flex;justify-content:center;margin-bottom:6px">'+badge(rating)+'</div>'+
+      bar(conf)+'</div>'; };
+  const _totP=grupos.reduce((a,g)=>a+G[g].nProd,0), _totC=grupos.reduce((a,g)=>a+G[g].nConteo,0);
+  const _covPct=_totP?Math.round(_totC/_totP*100):0;
+  html+='<div style="background:#EFF6FF;border:1px solid #93C5FD;border-radius:8px;padding:11px 14px;margin-bottom:12px;font-size:12px;color:#1E40AF;display:flex;align-items:flex-start;gap:8px">'+
+    '<span style="font-size:16px;line-height:1">ℹ️</span><span><b>Importante:</b> la confiabilidad se calcula <b>únicamente sobre los productos con conteo físico</b>. Los productos sin conteo <b>no participan</b> — no se asumen correctos. Cobertura del mes: <b>'+_totC+' de '+_totP+' productos ('+_covPct+'%)</b>. Revisá la cobertura por grupo: una muestra parcial no representa toda la bodega.</span></div>';
+  html+='<div style="font-size:11px;color:var(--grisMed);margin-bottom:12px"><span style="display:inline-block;width:11px;height:11px;background:#BFBFBF;border-radius:2px;vertical-align:middle"></span> Confiable (Sin Variación) &nbsp; <span style="display:inline-block;width:11px;height:11px;background:#ED7D31;border-radius:2px;vertical-align:middle"></span> Variación (Con Variación) &nbsp;·&nbsp; meta ≥ 98%</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px">';
   grupos.forEach(g=>{
     const d=G[g]; const hay=d.nConteo>0;
-    const confU=hay && d.sisCant>0 ? (1-d.varAbsCant/d.sisCant)*100 : null;
-    const confD=hay && d.sisUsd>0  ? (1-d.varAbsUsd/d.sisUsd)*100  : null;
+    const _clip=v=>Math.max(0,Math.min(100,v));
+    const confU=hay && d.sisCantCont>0 ? _clip((1-d.varAbsCant/d.sisCantCont)*100) : null;
+    const confD=hay && d.sisUsdCont>0  ? _clip((1-d.varAbsUsd/d.sisUsdCont)*100)  : null;
     const rU=confU!=null?_bodRatingPct(confU):null, rUsd=hay?_bodRatingUsd(d.varAbsUsd):null;
+    const uLabel=_bodUnidad(g);
+    const covU=d.sisCant>0?Math.round(d.sisCantCont/d.sisCant*100):0;   // cobertura por unidades
+    const covBaja=hay&&covU<90;
     html+='<div class="card" style="padding:14px 16px">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:10px">'+
-        '<div style="font-size:13px;font-weight:800;color:var(--azul);font-family:Raleway,sans-serif">Confiabilidad de '+esc(g)+'</div>'+
-        '<div style="font-size:10px;color:var(--grisMed)">'+d.nProd+' productos</div></div>'+
+      '<div style="text-align:center;margin-bottom:10px;border-bottom:1px solid var(--borde);padding-bottom:8px">'+
+        '<div style="font-size:14px;font-weight:800;color:var(--azul);font-family:Raleway,sans-serif">Confiabilidad de '+esc(g)+'</div>'+
+        '<div style="font-size:10px;color:var(--grisMed)">'+fechaCorte+' · '+d.nProd+' productos'+(hay?' · '+d.nConteo+' con conteo':'')+'</div>'+
+        (hay?'<div title="La confiabilidad se calcula solo sobre lo contado. Cobertura = unidades contadas / unidades del sistema." style="font-size:9px;font-weight:700;margin-top:5px;display:inline-block;border-radius:5px;padding:2px 8px;cursor:help;'+(covBaja?'color:#B91C1C;background:#FEE2E2;border:1px solid #FCA5A5':'color:#166534;background:#DCFCE7;border:1px solid #86EFAC')+'">📋 Cobertura '+covU+'% de las unidades ('+d.nConteo+'/'+d.nProd+' productos)'+(covBaja?' · muestra parcial':'')+'</div>':'')+
+        (d.nSaco>0?'<div title="El sistema (Acosux) registra en KG; el conteo físico se hizo en SACOS. Se convierte físico × factor a la unidad del sistema para comparar." style="font-size:9px;color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:5px;padding:2px 8px;margin-top:5px;display:inline-block;cursor:help">📦 '+d.nSaco+' producto'+(d.nSaco>1?'s':'')+' en sacos (×'+d.factorSaco+' kg, convertido)</div>':'')+
+      '</div>'+
       (hay
-        ? '<div style="display:grid;grid-template-columns:64px 1fr auto;gap:8px 10px;align-items:center;font-size:11px">'+
-            '<div style="color:var(--grisMed);font-weight:700">'+_bodUnidad(g)+'</div>'+bar(confU)+badge(rU)+
-            '<div style="color:var(--grisMed);font-weight:700">Dólares</div>'+bar(confD)+badge(rUsd)+
-          '</div>'+
-          '<div style="font-size:10px;color:var(--grisMed);margin-top:10px;border-top:1px solid var(--borde);padding-top:6px">Sistema '+_f0(d.sisCant)+' '+_bodUnidad(g).toLowerCase()+' · '+_f$(d.sisUsd)+' — variación '+_f0(d.varAbsCant)+' '+_bodUnidad(g).toLowerCase()+' · '+_f$(d.varAbsUsd)+'</div>'
-        : '<div style="padding:14px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;font-size:11px;color:#92400E">Sistema cargado ('+_f0(d.sisCant)+' '+_bodUnidad(g).toLowerCase()+' · '+_f$(d.sisUsd)+'). <b>Falta el conteo físico</b> para calcular la confiabilidad.</div>')+
-      '</div>';
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">'+
+            colBlock('Variación ('+uLabel+')',uLabel,d.sisCantCont,d.varAbsCant,confU,rU,false)+
+            colBlock('Variación (Dólares)','Dólares',d.sisUsdCont,d.varAbsUsd,confD,rUsd,true)+
+          '</div>'
+        : '<div style="padding:14px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;font-size:11px;color:#92400E">Sistema cargado ('+_f0(d.sisCant)+' '+uLabel.toLowerCase()+' · '+_f$(d.sisUsd)+'). <b>Falta el conteo físico</b> — sin conteo, este grupo <b>no participa</b> en la confiabilidad.</div>')+
+    '</div>';
   });
   html+='</div>';
-  html+='<div style="font-size:10px;color:var(--grisMed);margin-top:12px">Calificación: Excelente >98% · Muy Bueno 95-98% · Bueno 90-94% · Regular 71-89% · Malo <70% (meta 98%). Dólares (variación absoluta): Excelente <$50 · Bueno $51-100 · Regular $100-149 · Malo >$150. Confiabilidad = 1 − Σ|sistema−físico| / Σ sistema.</div>';
+  html+='<div style="font-size:10px;color:var(--grisMed);margin-top:12px">Calificación: Excelente >98% · Muy Bueno 95-98% · Bueno 90-94% · Regular 71-89% · Malo <70% (meta 98%). Dólares (variación absoluta): Excelente <$50 · Bueno $51-100 · Regular $100-149 · Malo >$150. Confiabilidad = 1 − Σ|sistema−físico| / Σ sistema, <b>solo sobre los productos contados</b> (los no contados no participan).</div>';
   return html;
 }
 
@@ -5758,7 +5819,7 @@ function initChartsAbast(){
   const ctx=document.getElementById("bod-conf-chart");
   const G=window._bodGruposAgg||{}, grupos=window._bodGruposList||[];
   if(!ctx||!grupos.length) return;
-  const vals=grupos.map(g=>{ const d=G[g]; return d.nConteo>0 && d.sisCant>0 ? Math.round((1-d.varAbsCant/d.sisCant)*1000)/10 : null; });
+  const vals=grupos.map(g=>{ const d=G[g]; return d.nConteo>0 && d.sisCantCont>0 ? Math.max(0,Math.min(100,Math.round((1-d.varAbsCant/d.sisCantCont)*1000)/10)) : null; });
   const cols=grupos.map((g,i)=>{ const v=vals[i]; return v==null?"#C9CFD8":_bodColor(_bodRatingPct(v)); });
   charts["bod-conf-chart"]=new Chart(ctx,{type:"bar",
     data:{labels:grupos.map(g=>g.replace(" y ","/").replace("Repuestos y Materiales","Repuestos").replace("Balanceados y Químicos","Balanceados")),datasets:[{label:"Confiabilidad %",data:vals.map(v=>v==null?0:v),backgroundColor:cols,borderRadius:3}]},
@@ -5767,6 +5828,77 @@ function initChartsAbast(){
     plugins:[{id:"metaLine",afterDatasetsDraw(chart){const{ctx,chartArea:{left,right},scales:{y}}=chart;const yy=y.getPixelForValue(98);ctx.save();ctx.strokeStyle="#16A97A";ctx.setLineDash([5,4]);ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(left,yy);ctx.lineTo(right,yy);ctx.stroke();ctx.restore();}}]});
 }
 window.initChartsAbast=initChartsAbast;
+
+// ── Cierre de mes de Confiabilidad de Inventarios (BOD-IND-001) ──────────
+// Congela la data del mes (Saldo Bodega + Conteo Físico) para que no se
+// sobrescriba tras presentarla. Guarda quién y cuándo + snapshot promedio.
+function abrirCierreMesBod(){
+  const cache=window._sbCache||{};
+  const emp=(cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
+  if(!emp){ showError("Selecciona una empresa."); return; }
+  const anio=filtroPeriodo.anio>0?filtroPeriodo.anio:2026;
+  let mes=filtroPeriodo.mes>0?filtroPeriodo.mes:0;
+  if(!mes){ const rr=(cache.bod_saldo_resumen||[]).filter(b=>b.id_empresa===emp.id&&b.anio===anio).map(b=>b.mes); mes=rr.length?Math.max(...rr):(new Date()).getMonth()+1; }
+  const G=window._bodGruposAgg||{}, grupos=window._bodGruposList||[];
+  if(!grupos.length){ showError("No hay datos de inventario para cerrar."); return; }
+  const rowsHtml=grupos.map(g=>{
+    const d=G[g]; const conf=d.nConteo>0&&d.sisCantCont>0?Math.max(0,Math.min(100,(1-d.varAbsCant/d.sisCantCont)*100)):null;
+    const col=conf==null?"#6B87A8":_bodColor(_bodRatingPct(conf));
+    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--borde)">'+
+      '<span style="font-size:12px;color:var(--azul);font-weight:600">'+esc(g)+' <span style="color:var(--grisMed);font-weight:400">('+d.nConteo+' con conteo)</span></span>'+
+      '<span style="font-weight:800;color:'+col+'">'+(conf==null?'<span style="color:var(--grisMed);font-weight:600">— sin conteo</span>':conf.toFixed(1)+'%')+'</span></div>';
+  }).join("");
+  const yaCerr=_bodCierre(emp.id,anio,mes);
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🔒 Cerrar mes — '+MESES_N[mes]+' '+anio+'</div>'+
+    '<div class="modal-sub" style="margin-bottom:12px">Confiabilidad de Inventarios · '+esc(emp.nombre)+(yaCerr?' · <b style="color:#D4A012">ya cerrado (se reemplaza)</b>':'')+'</div>'+
+    '<div style="background:#F8FAFC;border:1px solid var(--borde);border-radius:8px;padding:6px 14px;margin-bottom:14px">'+rowsHtml+'</div>'+
+    '<div style="font-size:11px;color:var(--grisMed);margin-bottom:16px;line-height:1.5">Se <b>congela</b> la data de '+MESES_N[mes]+' (Saldo Bodega + Conteo Físico). A partir de ahí no se podrá sobrescribir por carga; sólo un administrador puede reabrirlo.</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" onclick="confirmarCierreMesBod('+emp.id+','+anio+','+mes+')">🔒 Cerrar '+MESES_N[mes]+'</button></div></div>');
+}
+window.abrirCierreMesBod=abrirCierreMesBod;
+
+async function confirmarCierreMesBod(empId,anio,mes){
+  closeModal();
+  try{
+    const G=window._bodGruposAgg||{}, grupos=window._bodGruposList||[];
+    const confs=[], detalle={};
+    grupos.forEach(g=>{ const d=G[g]; if(d.nConteo>0&&d.sisCantCont>0){ const cu=Math.max(0,Math.min(100,(1-d.varAbsCant/d.sisCantCont)*100)); confs.push(cu);
+      detalle[g]={confU:Math.round(cu*10)/10, sisCant:Math.round(d.sisCantCont), varCant:Math.round(d.varAbsCant), nConteo:d.nConteo, nProd:d.nProd}; } });
+    const prom=confs.length?Math.round(confs.reduce((a,b)=>a+b,0)/confs.length*10)/10:null;
+    const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
+    const data={id_empresa:empId,anio,mes,confiabilidad_prom:prom,detalle,cerrado_por:usuario,cerrado_en:nowIso};
+    await sbUpsert("bod_cierre",data,"id_empresa,anio,mes");
+    const cache=window._sbCache.bod_cierre=window._sbCache.bod_cierre||[];
+    const i=cache.findIndex(c=>c.id_empresa===empId&&c.anio===anio&&c.mes===mes);
+    if(i>=0) cache[i]={...cache[i],...data}; else cache.push(data);
+    (typeof showSuccess==="function")?showSuccess("✓ "+MESES_N[mes]+" "+anio+" cerrado — data congelada"):null;
+    renderContent();
+  }catch(e){ console.error("[cierreBod]",e); showError("Error al cerrar el mes: "+(e?.message||e)); }
+}
+window.confirmarCierreMesBod=confirmarCierreMesBod;
+
+function reabrirMesBod(empId,anio,mes){
+  if(sesion?.rol!=="eq_admin"){ showError("Solo un administrador puede reabrir un mes."); return; }
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🔓 Reabrir '+MESES_N[mes]+' '+anio+'</div>'+
+    '<div class="modal-sub" style="margin-bottom:14px">Se quita el congelado y el mes vuelve a aceptar cargas. Podés volver a cerrarlo luego.</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" onclick="_reabrirBodGo('+empId+','+anio+','+mes+')">🔓 Reabrir</button></div></div>');
+}
+window.reabrirMesBod=reabrirMesBod;
+
+async function _reabrirBodGo(empId,anio,mes){
+  closeModal();
+  try{
+    const r=await fetch(SUPA_URL+"/rest/v1/bod_cierre?id_empresa=eq."+empId+"&anio=eq."+anio+"&mes=eq."+mes,
+      {method:"DELETE",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY}});
+    if(!r.ok) throw new Error("delete "+r.status+" "+(await r.text()).slice(0,120));
+    const cache=window._sbCache; if(cache?.bod_cierre) cache.bod_cierre=cache.bod_cierre.filter(c=>!(c.id_empresa===empId&&c.anio===anio&&c.mes===mes));
+    (typeof showSuccess==="function")?showSuccess("🔓 "+MESES_N[mes]+" "+anio+" reabierto"):null;
+    renderContent();
+  }catch(e){ console.error("[reabrirBod]",e); showError("Error al reabrir: "+(e?.message||e)); }
+}
+window._reabrirBodGo=_reabrirBodGo;
 
 // ═══════════════════════════════════════════════════════════════
 // INGRESO DE DATOS
@@ -7627,6 +7759,10 @@ async function _bodParse(files){
       const nom=ci.nom>=0?String(r[ci.nom]||"").trim():"";
       const ident=prodCode||nom;                 // usa código; si viene vacío, el nombre
       if(!ident) continue;
+      // Saltar filas de totales/subtotales del reporte (no son productos): "---> TOTAL GENERAL",
+      // "SUBTOTAL (...)", etc. Incluirlas duplicaba el saldo de cada bodega.
+      const identN=norm(ident);
+      if(identN.startsWith("--->")||identN.includes("total general")||identN.startsWith("subtotal")||identN==="total") continue;
       const stock=num(r[ci.stock]), costo=num(r[ci.costo]);
       const total=ci.total>=0?num(r[ci.total]):stock*costo;
       if(!prodCode && stock===0 && total===0) continue;   // salta encabezados de grupo sin datos
@@ -7672,6 +7808,8 @@ async function bodSaldoGuardar(){
     if(!_bodPreview){ showError("Primero subí los reportes."); return; }
     const idEmpresa=parseInt(gVal("bod-empresa")), mes=parseInt(gVal("bod-mes")), anio=parseInt(gVal("bod-anio"));
     if(!idEmpresa||!mes||!anio){ showError("Seleccioná empresa, mes y año."); return; }
+    const _cerr=_bodCierre(idEmpresa,anio,mes);
+    if(_cerr){ showError("🔒 "+MESES_N[mes]+" "+anio+" está CERRADO (por "+(_cerr.cerrado_por||"—")+"). Un administrador debe reabrirlo para poder cargar."); return; }
     const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
     const fc=anio+"-"+String(mes).padStart(2,"0")+"-28";
     const payload=_bodPreview.list.map(p=>({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,grupo:p.grupo,producto:p.producto,nombre:p.nombre,medida:p.medida,
@@ -7695,12 +7833,20 @@ async function bodFisicoLeerExcel(){
     const list=await _bodParse([...fileEl.files]); // stock = cantidad contada (real)
     if(!list.length){ pv.innerHTML='<div style="color:#E03355;font-weight:700">❌ No se detectaron productos en el conteo.</div>'; return; }
     _bodfPreview={list};
-    const G={}; list.forEach(p=>{ const g=p.grupo; if(!G[g])G[g]={n:0,cant:0}; G[g].n++; G[g].cant+=p.stock; });
+    // Traer el sistema del mes seleccionado para detectar (con visibilidad) el conteo en sacos.
+    let sisMap={};
+    try{
+      const ie=parseInt(gVal("bodf-empresa")), mm=parseInt(gVal("bodf-mes")), aa=parseInt(gVal("bodf-anio"));
+      if(ie&&mm&&aa){ const sis=await sbQueryPaginated("bod_saldo","select=bodega,producto,sistema_cant,factor_saco&id_empresa=eq."+ie+"&anio=eq."+aa+"&mes=eq."+mm,1000);
+        sis.forEach(r=>{ sisMap[r.bodega+"|"+r.producto]={s:+r.sistema_cant||0,f:r.factor_saco}; }); }
+    }catch(e){ console.warn("[bodfPrev sistema]",e); }
+    const detFac=(k,stock)=>{ const m=sisMap[k]; if(!m) return null; if(m.f!=null&&+m.f>1) return +m.f; if(stock>0&&m.s>0&&m.s/stock>=10){ const rr=m.s/stock,kk=Math.round(rr); if(kk>=10&&Math.abs(rr-kk)/kk<0.02) return kk; } return null; };
+    const G={}; let totSaco=0; list.forEach(p=>{ const g=p.grupo; if(!G[g])G[g]={n:0,cant:0,saco:0,fac:0}; G[g].n++; G[g].cant+=p.stock; const f=detFac(p.bodega+"|"+p.producto,p.stock); if(f){ G[g].saco++; G[g].fac=f; totSaco++; } });
     const _f0=v=>Math.round(v).toLocaleString("en-US");
     pv.innerHTML='<div style="font-weight:700;color:var(--azul);margin-bottom:8px"><span style="color:#16A97A">✓</span> '+list.length+' productos contados</div>'+
-      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#F8FAFC;text-align:left">'+['GRUPO','PRODUCTOS','CANT. FÍSICA'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i>1?';text-align:right':'')+'">'+h+'</th>').join("")+'</tr></thead><tbody>'+
-      Object.entries(G).map(([g,d])=>'<tr style="border-bottom:1px solid var(--borde)"><td style="padding:6px 8px;font-weight:600">'+esc(g)+'</td><td style="padding:6px 8px">'+d.n+'</td><td style="padding:6px 8px;text-align:right">'+_f0(d.cant)+'</td></tr>').join("")+'</tbody></table>'+
-      '<div style="font-size:11px;color:var(--grisMed);margin-top:8px">Actualiza el REAL de los productos que coincidan con el sistema ya cargado del mes.</div>';
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#F8FAFC;text-align:left">'+['GRUPO','PRODUCTOS','EN SACOS','CANT. FÍSICA'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===3?';text-align:right':i===2?';text-align:center':'')+'">'+h+'</th>').join("")+'</tr></thead><tbody>'+
+      Object.entries(G).map(([g,d])=>'<tr style="border-bottom:1px solid var(--borde)"><td style="padding:6px 8px;font-weight:600">'+esc(g)+'</td><td style="padding:6px 8px">'+d.n+'</td><td style="padding:6px 8px;text-align:center">'+(d.saco>0?'<span title="Se convertirá ×'+d.fac+' kg a la unidad del sistema" style="color:#B45309;font-weight:700;cursor:help">📦 '+d.saco+' (×'+d.fac+')</span>':'—')+'</td><td style="padding:6px 8px;text-align:right">'+_f0(d.cant)+'</td></tr>').join("")+'</tbody></table>'+
+      '<div style="font-size:11px;color:var(--grisMed);margin-top:8px">Actualiza el REAL de los productos que coincidan con el sistema ya cargado del mes.'+(totSaco>0?' <b style="color:#B45309">📦 '+totSaco+' producto'+(totSaco>1?'s':'')+' detectado'+(totSaco>1?'s':'')+' en sacos</b> — el físico se convierte a la unidad del sistema (KG) al comparar.':'')+'</div>';
     if(btn){ btn.disabled=false; btn.style.opacity="1"; }
   }catch(e){ console.error("[bodFisicoLeer]",e); pv.innerHTML='<div style="color:#E03355">❌ Error: '+esc(e.message)+'</div>'; }
 }
@@ -7711,20 +7857,26 @@ async function bodFisicoGuardar(){
     if(!_bodfPreview){ showError("Primero subí el conteo."); return; }
     const idEmpresa=parseInt(gVal("bodf-empresa")), mes=parseInt(gVal("bodf-mes")), anio=parseInt(gVal("bodf-anio"));
     if(!idEmpresa||!mes||!anio){ showError("Seleccioná empresa, mes y año."); return; }
+    const _cerrF=_bodCierre(idEmpresa,anio,mes);
+    if(_cerrF){ showError("🔒 "+MESES_N[mes]+" "+anio+" está CERRADO (por "+(_cerrF.cerrado_por||"—")+"). Un administrador debe reabrirlo para poder cargar."); return; }
     // Traer el sistema del mes para matchear (solo se actualiza el REAL de productos existentes)
-    const sis=await sbQueryPaginated("bod_saldo","select=bodega,producto&id_empresa=eq."+idEmpresa+"&anio=eq."+anio+"&mes=eq."+mes,1000);
+    const sis=await sbQueryPaginated("bod_saldo","select=bodega,producto,sistema_cant,factor_saco&id_empresa=eq."+idEmpresa+"&anio=eq."+anio+"&mes=eq."+mes,1000);
     if(!sis.length){ showError("No hay SISTEMA cargado para "+MESES_N[mes]+" "+anio+". Cargá primero el Saldo Bodega."); return; }
-    const claves=new Set(sis.map(r=>r.bodega+"|"+r.producto));
-    const conteo={}; _bodfPreview.list.forEach(p=>{ conteo[p.bodega+"|"+p.producto]=p.stock; });
+    const sisMap={}; sis.forEach(r=>{ sisMap[r.bodega+"|"+r.producto]={s:+r.sistema_cant||0, f:r.factor_saco}; });
     const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
-    const payload=[]; let match=0;
-    _bodfPreview.list.forEach(p=>{ const k=p.bodega+"|"+p.producto; if(claves.has(k)){ match++;
-      payload.push({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,producto:p.producto,real_cant:p.stock,actualizado_en:nowIso,cargado_por:usuario}); } });
+    const payload=[]; let match=0, nSaco=0;
+    _bodfPreview.list.forEach(p=>{ const k=p.bodega+"|"+p.producto; const m=sisMap[k]; if(m){ match++;
+      // Detección de conteo en SACOS: si el sistema/físico ≈ entero grande (≥10), el físico
+      // se contó en sacos → se guarda el factor para convertirlo. Respeta el factor ya guardado.
+      let fac=m.f!=null?+m.f:null;
+      if(fac==null && p.stock>0 && m.s>0 && m.s/p.stock>=10){ const rr=m.s/p.stock, kk=Math.round(rr); if(kk>=10 && Math.abs(rr-kk)/kk<0.02) fac=kk; }
+      if(fac>1) nSaco++;
+      payload.push({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,producto:p.producto,real_cant:p.stock,factor_saco:(fac!=null?fac:null),actualizado_en:nowIso,cargado_por:usuario}); } });
     if(!payload.length){ showError("Ningún producto del conteo coincide con el sistema del mes."); return; }
     await _bodUpsert(payload);
-    await _logCarga("BOD-IND-001 Conteo Físico (Real) · "+match+" productos · "+MESES_N[mes]+" "+anio);
+    await _logCarga("BOD-IND-001 Conteo Físico (Real) · "+match+" productos"+(nSaco>0?" ("+nSaco+" en sacos)":"")+" · "+MESES_N[mes]+" "+anio);
     _bodfPreview=null;
-    (typeof showSuccess==="function")?showSuccess("✓ Conteo físico guardado · "+match+" productos actualizados"):null;
+    (typeof showSuccess==="function")?showSuccess("✓ Conteo físico guardado · "+match+" productos"+(nSaco>0?" ("+nSaco+" detectados en sacos y convertidos)":"")):null;
     renderContent();
   }catch(e){ console.error("[bodFisicoGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
 }
