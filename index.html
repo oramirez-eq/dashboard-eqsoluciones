@@ -1255,6 +1255,11 @@ async function cargarDBResto(){
     const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,producto,sistema_cant,costo,real_cant,factor_saco&order=anio.asc,mes.asc").catch(()=>[]);
     const bod_cierre = await q("bod_cierre", {select:"*", order:"anio.desc,mes.desc", limit:2000}).catch(()=>[]);
     const bod_factor_config = await q("bod_factor_config", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}).catch(()=>[]);
+    // BOD-IND-002 Rotación de Inventario (tolerante: DDL en migración)
+    const bod_rot_producto = await q("bod_rot_producto", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}).catch(()=>[]);
+    const bod_rot_politica = await q("bod_rot_politica", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
+    const bod_rot_saldo    = await q("bod_rot_saldo", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
+    const bod_rot_ingreso  = await q("bod_rot_ingreso", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
@@ -1262,6 +1267,7 @@ async function cargarDBResto(){
       eq_cartera_contraparte, rrhh_grupo, rrhh_calif_config, usuario_acceso, empresa_sedes, empresa_areas,
       empresa_api_config, comercial_precio_camaron_hist, fin_pago_prov_config,
       fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual, bod_saldo_resumen, bod_cierre, bod_factor_config,
+      bod_rot_producto, bod_rot_politica, bod_rot_saldo, bod_rot_ingreso,
     });
 
     // Lote 2 — datos operativos pesados + RRHH detalle (en paralelo)
@@ -2458,6 +2464,22 @@ function getKPIResumen(){
         byInd[aba005.id] = {id_indicador:aba005.id, id_empresa:emp.id, anio:anioLive, mes:mesBod,
                             valor:Math.round(conf*10)/10,
                             semaforo: conf>=95?"verde":conf>=71?"amarillo":"rojo"};
+      }
+    }
+  }
+
+  // BOD-IND-002 · Rotación de Inventario — cumplimiento total (%) desde _rotResumen
+  const rot002 = inds.find(i=>i.codigo==="BOD-IND-002");
+  if(rot002 && typeof _rotResumen==="function"){
+    const rs=(cache.bod_rot_saldo||[]).filter(b=>b.id_empresa===emp.id && b.anio===anioLive && b.mes>0).map(b=>b.mes);
+    const mesRot = mesLive>0 ? mesLive : (rs.length?Math.max(...rs):0);
+    if(mesRot){
+      const rres=_rotResumen(emp.id, anioLive, mesRot);
+      if(rres.total!=null){
+        const pct=rres.total*100;
+        byInd[rot002.id]={id_indicador:rot002.id, id_empresa:emp.id, anio:anioLive, mes:mesRot,
+          valor:Math.round(pct*10)/10,
+          semaforo: pct>=95?"verde":pct>=71?"amarillo":"rojo"};
       }
     }
   }
@@ -5679,11 +5701,18 @@ function _bodColor(r){ return {"Excelente":"#16A97A","Muy Bueno":"#4CAF50","Buen
 function _bodCierre(empId,anio,mes){ return (window._sbCache?.bod_cierre||[]).find(c=>c.id_empresa===empId&&c.anio===anio&&c.mes===mes)||null; }
 
 function renderAbastecimiento(){
-  return '<div id="abast-container"><div class="card" style="padding:32px;text-align:center;color:var(--grisMed)">⏳ Cargando confiabilidad de inventarios...</div></div>';
+  const tab=window._abastTab||'confiab';
+  const tb=(k,lbl)=>{ const on=tab===k; return '<button onclick="setAbastTab(\''+k+'\')" style="padding:9px 16px;border:none;border-bottom:3px solid '+(on?'#16A0B8':'transparent')+';background:transparent;color:'+(on?'var(--azul)':'var(--grisMed)')+';font-weight:800;font-size:13px;cursor:pointer;font-family:Raleway,sans-serif">'+lbl+'</button>'; };
+  return '<div style="border-bottom:1px solid var(--borde);margin-bottom:16px;display:flex;gap:4px;flex-wrap:wrap">'+
+      tb('confiab','📦 Confiabilidad (BOD-IND-001)')+tb('rotacion','🔄 Rotación (BOD-IND-002)')+'</div>'+
+    '<div id="abast-container"><div class="card" style="padding:32px;text-align:center;color:var(--grisMed)">⏳ Cargando…</div></div>';
 }
 window.renderAbastecimiento=renderAbastecimiento;
+function setAbastTab(t){ window._abastTab=t; renderContent(); }
+window.setAbastTab=setAbastTab;
 
 async function loadAbastecimiento(){
+  if((window._abastTab||'confiab')==='rotacion'){ try{ await loadRotacion(); }catch(e){ console.error("[rotacion]",e); } return; }
   const cont=document.getElementById("abast-container"); if(!cont) return;
   const cache=window._sbCache||{};
   const emp=(cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
@@ -5834,6 +5863,242 @@ function initChartsAbast(){
 }
 window.initChartsAbast=initChartsAbast;
 
+// ═══════════════════════════════════════════════════════════════
+// BOD-IND-002 · ROTACIÓN DE INVENTARIO (Cobertura de días)
+//   Consumo = Saldo inicial + Ingresos − Saldo final
+//   Cobertura días = Saldo final / (Consumo / días del mes)
+//   Cumplimiento = min(1, Lím.Máx / Cobertura) · Total = promedio
+// ═══════════════════════════════════════════════════════════════
+function _rotDiasMes(anio,mes){ const d=[0,31,28,31,30,31,30,31,31,30,31,30,31];
+  if(mes===2 && (anio%4===0 && (anio%100!==0||anio%400===0))) return 29; return d[mes]||30; }
+
+function _rotResumen(empId, anio, mes){
+  const cache=window._sbCache||{};
+  const prods=(cache.bod_rot_producto||[]).filter(p=>p.id_empresa===empId && p.activo!==false)
+    .sort((a,b)=>String(a.producto).localeCompare(String(b.producto)));
+  const sIdx={}; (cache.bod_rot_saldo||[]).forEach(s=>{ if(s.id_empresa===empId) sIdx[s.producto+'|'+s.anio+'|'+s.mes]=s; });
+  const iIdx={}; (cache.bod_rot_ingreso||[]).forEach(i=>{ if(i.id_empresa===empId) iIdx[i.producto+'|'+i.anio+'|'+i.mes]=+i.ingreso_cant||0; });
+  const pIdx={}; (cache.bod_rot_politica||[]).forEach(p=>{ if(p.id_empresa===empId) pIdx[p.producto+'|'+p.anio+'|'+p.mes]=(p.lim_max_dias==null?null:+p.lim_max_dias); });
+  const saldoCant=(cod,a,m)=>{ const s=sIdx[cod+'|'+a+'|'+m]; return s?(+s.saldo_cant||0):null; };
+  const cob=(cod,a,m)=>{
+    const s=saldoCant(cod,a,m); if(s==null) return null;
+    let pa=a, pm=m-1; if(pm<1){ pm=12; pa=a-1; }
+    const sini=saldoCant(cod,pa,pm); if(sini==null) return null;
+    const consumo=sini+(iIdx[cod+'|'+a+'|'+m]||0)-s;
+    if(consumo<=0 || s<=0) return 0;
+    return s/(consumo/_rotDiasMes(a,m));
+  };
+  const rows=prods.map(p=>{
+    const serie=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>({mes:m, cob:cob(p.producto,anio,m)}));
+    const real=cob(p.producto,anio,mes);
+    const limmax=pIdx[p.producto+'|'+anio+'|'+mes];
+    const cumpl=(real==null)?null:(real<=0?1:Math.min(1,(limmax||0)/real));
+    const sj=sIdx[p.producto+'|'+anio+'|'+mes];
+    const factor=sj?(+sj.factor_saco||1):1;
+    const sacos=sj?Math.round((+sj.saldo_cant||0)/(factor>1?factor:1)):0;
+    const dolares=sj?(+sj.saldo_usd||0):0;
+    return {cod:p.producto, nombre:p.nombre, grupo:p.grupo, serie, real, limmax, cumpl, sacos, dolares, factor};
+  });
+  const withData=rows.filter(r=>r.cumpl!=null);
+  const total=withData.length?withData.reduce((a,r)=>a+r.cumpl,0)/withData.length:null;
+  return {rows, total, mes, anio, nEval:rows.length, nConData:withData.length};
+}
+
+async function loadRotacion(){
+  const cont=document.getElementById("abast-container"); if(!cont) return;
+  const cache=window._sbCache||{};
+  const emp=(cache.empresas||[]).find(e=>e.codigo===filtros.empresa);
+  if(!emp){ cont.innerHTML='<div class="card" style="padding:24px">Seleccioná una empresa.</div>'; return; }
+  const anio=filtroPeriodo.anio>0?filtroPeriodo.anio:2026;
+  let mes=filtroPeriodo.mes>0?filtroPeriodo.mes:0;
+  if(!mes){ const rr=(cache.bod_rot_saldo||[]).filter(b=>b.id_empresa===emp.id&&b.anio===anio&&b.mes>0).map(b=>b.mes); mes=rr.length?Math.max(...rr):(new Date()).getMonth()+1; }
+  const res=_rotResumen(emp.id,anio,mes);
+  cont.innerHTML=renderRotacionHTML(res, emp, anio, mes);
+  setTimeout(()=>{ try{ initChartsRotacion(res); }catch(e){ console.error("[rot-chart]",e); } },60);
+}
+window.loadRotacion=loadRotacion;
+
+function renderRotacionHTML(res, emp, anio, mes){
+  const puedeIngr=["eq_admin","eq_lider","gestor_kpi"].includes(sesion?.rol);
+  const _f0=v=>Math.round(v||0).toLocaleString("en-US");
+  const _f$=v=>"$"+(v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const dia=new Date(anio,mes,0).getDate();
+  const bt=(tab,ic,lbl,cl)=>'<button onclick="irAIngreso(\''+tab+'\')" style="padding:8px 12px;font-size:11px;border:1px solid '+cl+';color:'+cl+';background:transparent;border-radius:6px;cursor:pointer;font-weight:700">'+ic+' '+lbl+'</button>';
+  let html='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">'+
+    '<div><div style="font-size:18px;font-weight:800;font-family:\'Raleway\',sans-serif">🔄 Rotación de Inventario — '+esc(emp.nombre)+'</div>'+
+    '<div style="font-size:11px;color:var(--grisMed)">BOD-IND-002 · Balanceados e Insumos Químicos + Combustible (Diesel) · Al '+dia+' de '+MESES_N[mes]+' de '+anio+'</div></div>'+
+    (puedeIngr?'<div style="display:flex;gap:8px;flex-wrap:wrap">'+bt('rot-imb','📥','Cargar IMB','var(--tq)')+bt('rot-productos','⚙️','Productos','var(--azul)')+bt('rot-politicas','📏','Políticas','#B45309')+'</div>':'')+
+    '</div>';
+  if(!res.rows.length){
+    return html+'<div class="card" style="text-align:center;padding:40px"><div style="font-size:34px">🔄</div>'+
+      '<div style="font-size:16px;font-weight:800;font-family:Raleway,sans-serif;margin-top:10px">Sin productos configurados para rotación</div>'+
+      '<div style="font-size:12px;color:var(--grisMed);margin-top:6px;max-width:560px;margin-left:auto;margin-right:auto">Corré la migración <b>20260717000000_bod_rotacion.sql</b> (crea las tablas y precarga los productos ene-jun) y volvé a entrar. Luego administrá los productos y las políticas de días.</div></div>';
+  }
+  const totPct=res.total!=null?res.total*100:null;
+  const rat=totPct!=null?_bodRatingPct(totPct):'—', col=_bodColor(rat);
+  html+='<div class="card" style="padding:16px 18px;margin-bottom:14px;display:flex;align-items:center;gap:22px;flex-wrap:wrap">'+
+    '<div><div style="font-size:11px;color:var(--grisMed);font-weight:700">CUMPLIMIENTO TOTAL</div>'+
+      '<div style="font-size:34px;font-weight:800;color:'+col+';line-height:1.1">'+(totPct!=null?totPct.toFixed(0)+'%':'—')+'</div>'+
+      '<span class="kpi-badge" style="background:'+col+'18;color:'+col+';border:1px solid '+col+'40;font-size:10px;padding:2px 8px">'+rat+'</span></div>'+
+    '<div style="font-size:11px;color:var(--grisMed);line-height:1.6;flex:1;min-width:220px">Promedio del cumplimiento de <b>'+res.nConData+'</b> de '+res.nEval+' producto(s) evaluado(s). Cumplimiento = min(100%, Lím.Máx ÷ Real días).<br>Calificación: Excelente &gt;98% · Muy Bueno 95-98% · Bueno 90-94% · Regular 71-89% · Malo &lt;70%.</div>'+
+  '</div>';
+  html+='<div class="card" style="padding:0;overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+    '<thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','','REAL (días)','LÍM. MÁX.','CUMPLIMIENTO','SACOS','DÓLARES'].map((h,i)=>'<th style="padding:9px 10px;font-size:10px;color:#6B87A8;font-weight:700'+(i>=2?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
+  res.rows.forEach(r=>{
+    const cp=r.cumpl==null?null:r.cumpl*100, cc=cp==null?'var(--grisMed)':_bodColor(_bodRatingPct(cp));
+    html+='<tr style="border-bottom:1px solid var(--borde)">'+
+      '<td style="padding:8px 10px;font-weight:700;color:#1E40AF">'+esc(r.cod)+'</td>'+
+      '<td style="padding:8px 10px;color:var(--grisMed);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(r.nombre||'')+'">'+esc(r.nombre||'')+'</td>'+
+      '<td style="padding:8px 10px;text-align:right;font-weight:700">'+(r.real==null?'—':r.real.toFixed(2))+'</td>'+
+      '<td style="padding:8px 10px;text-align:right">'+(r.limmax==null?'—':r.limmax)+'</td>'+
+      '<td style="padding:8px 10px;text-align:right;font-weight:800;color:'+cc+'">'+(cp==null?'—':cp.toFixed(0)+'%')+'</td>'+
+      '<td style="padding:8px 10px;text-align:right">'+_f0(r.sacos)+'</td>'+
+      '<td style="padding:8px 10px;text-align:right">'+_f$(r.dolares)+'</td></tr>';
+  });
+  html+='</tbody></table></div>';
+  html+='<div class="section-title" style="margin-bottom:8px">Cobertura de días por mes — por producto</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">';
+  res.rows.forEach((r,i)=>{ html+='<div class="card" style="padding:12px 14px"><div style="font-size:12px;font-weight:800;color:var(--azul);text-align:center;margin-bottom:8px">'+esc(r.nombre||r.cod)+' (días)</div><div style="height:180px"><canvas id="rot-ch-'+i+'"></canvas></div></div>'; });
+  html+='</div>';
+  html+='<div style="font-size:10px;color:var(--grisMed);margin-top:12px">Cobertura (días) = Saldo final ÷ (Consumo ÷ días del mes). Consumo = Saldo inicial + Ingresos − Saldo final. La línea roja punteada es el Lím. Máx. (política). Columnas naranja = por encima del límite.</div>';
+  return html;
+}
+window.renderRotacionHTML=renderRotacionHTML;
+
+function initChartsRotacion(res){
+  const MC=["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  (res.rows||[]).forEach((r,i)=>{
+    const ctx=document.getElementById("rot-ch-"+i); if(!ctx) return;
+    const pts=r.serie.filter(s=>s.cob!=null);
+    const labels=pts.map(s=>MC[s.mes]), data=pts.map(s=>Math.round(s.cob*100)/100);
+    const lim=r.limmax!=null?+r.limmax:null;
+    const cols=data.map(v=>lim!=null&&v>lim?"#E87A2A":"#1A6FCF");
+    if(charts["rot-ch-"+i]) charts["rot-ch-"+i].destroy();
+    charts["rot-ch-"+i]=new Chart(ctx,{type:"bar",data:{labels,datasets:[{label:"Días",data,backgroundColor:cols,borderRadius:3}]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:it=>it.parsed.y+" días"+(lim!=null?" (máx "+lim+")":"")}}},
+        scales:{x:{ticks:{color:"#6B87A8",font:{size:10}},grid:{display:false}},y:{beginAtZero:true,ticks:{color:"#6B87A8"},grid:{color:"#E0E8F0"}}}},
+      plugins: lim!=null?[{id:"limLine",afterDatasetsDraw(ch){const a=ch.chartArea,y=ch.scales.y;const yy=y.getPixelForValue(lim);if(yy<a.top||yy>a.bottom)return;const c=ch.ctx;c.save();c.strokeStyle="#E03355";c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(a.left,yy);c.lineTo(a.right,yy);c.stroke();c.restore();}}]:[]});
+  });
+}
+window.initChartsRotacion=initChartsRotacion;
+
+// ── Rotación · CRUD Productos evaluados ──
+async function rotProdGuardar(){
+  try{
+    const idE=window._rotProdEmp||parseInt(gVal("rp-emp"))||2;
+    const cod=(gVal("rp-cod")||"").trim(), nom=(gVal("rp-nom")||"").trim(), grp=(gVal("rp-grp")||"").trim();
+    if(!cod){ showError("Ingresá el código del producto."); return; }
+    const data={id_empresa:idE,producto:cod,nombre:nom||null,grupo:grp||null,activo:true,creado_por:(typeof sesion!=="undefined"&&sesion?.email)||null};
+    const res=await sbUpsert("bod_rot_producto",data,"id_empresa,producto");
+    const saved=Array.isArray(res)?res[0]:res;
+    const cache=window._sbCache||{}; cache.bod_rot_producto=cache.bod_rot_producto||[];
+    const i=cache.bod_rot_producto.findIndex(p=>p.id_empresa===idE&&p.producto===cod);
+    const row=saved||{...data,id:(i>=0?cache.bod_rot_producto[i].id:undefined)};
+    if(i>=0) cache.bod_rot_producto[i]=row; else cache.bod_rot_producto.push(row);
+    window._rotProdEdit=null;
+    await _logCarga("BOD-IND-002 Producto rotación · "+cod);
+    (typeof showSuccess==="function")?showSuccess("✓ Producto "+cod+" guardado"):null; renderContent();
+  }catch(e){ console.error("[rotProdGuardar]",e); showError("Error al guardar: "+(e?.message||e)); }
+}
+window.rotProdGuardar=rotProdGuardar;
+async function rotProdToggle(id){
+  try{ const cache=window._sbCache||{}; const p=(cache.bod_rot_producto||[]).find(x=>x.id===id); if(!p) return;
+    const nv=!(p.activo!==false); await supaPatch("bod_rot_producto","id=eq."+id,{activo:nv}); p.activo=nv; renderContent();
+  }catch(e){ console.error("[rotProdToggle]",e); showError("Error: "+(e?.message||e)); }
+}
+window.rotProdToggle=rotProdToggle;
+function rotProdEliminar(id){
+  const p=(window._sbCache?.bod_rot_producto||[]).find(x=>x.id===id); if(!p) return;
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🗑 Quitar producto de rotación</div>'+
+    '<div class="modal-sub" style="margin-bottom:14px">Se quita <b>'+esc(p.producto)+'</b> del indicador de rotación (no borra saldos ni ingresos). Podés volver a agregarlo.</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" style="background:#E03355" onclick="_rotProdEliminarGo('+id+')">🗑 Quitar</button></div></div>');
+}
+window.rotProdEliminar=rotProdEliminar;
+async function _rotProdEliminarGo(id){
+  closeModal();
+  try{ await fetch(SUPA_URL+"/rest/v1/bod_rot_producto?id=eq."+id,{method:"DELETE",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY}});
+    const cache=window._sbCache||{}; if(cache.bod_rot_producto) cache.bod_rot_producto=cache.bod_rot_producto.filter(x=>x.id!==id);
+    (typeof showSuccess==="function")?showSuccess("✓ Producto quitado"):null; renderContent();
+  }catch(e){ console.error("[rotProdEliminar]",e); showError("Error: "+(e?.message||e)); }
+}
+window._rotProdEliminarGo=_rotProdEliminarGo;
+
+// ── Rotación · CRUD Políticas de días (auditado) ──
+async function rotPolGuardar(producto, allYear){
+  try{
+    const idE=window._rotPolEmp||2, anio=window._rotPolAnio||2026, mes=window._rotPolMes||6;
+    const raw=(gVal("rpol-"+producto)||"").trim();
+    if(raw===''){ showError("Ingresá el límite de días para "+producto+"."); return; }
+    const lim=parseFloat(raw); if(isNaN(lim)||lim<0){ showError("Límite inválido."); return; }
+    const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null, nowIso=new Date().toISOString();
+    const meses=allYear?[1,2,3,4,5,6,7,8,9,10,11,12]:[mes];
+    const payload=meses.map(m=>({id_empresa:idE,anio,mes:m,producto,lim_max_dias:lim,actualizado_por:usuario,actualizado_en:nowIso}));
+    const r=await fetch(SUPA_URL+"/rest/v1/bod_rot_politica?on_conflict=id_empresa,anio,mes,producto",{method:"POST",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error("upsert "+r.status+" "+(await r.text()).slice(0,120));
+    const cache=window._sbCache||{}; cache.bod_rot_politica=cache.bod_rot_politica||[];
+    payload.forEach(p=>{ const i=cache.bod_rot_politica.findIndex(x=>x.id_empresa===idE&&x.anio===anio&&x.mes===p.mes&&x.producto===producto); if(i>=0) cache.bod_rot_politica[i]={...cache.bod_rot_politica[i],...p}; else cache.bod_rot_politica.push(p); });
+    try{ await supaPost("log_accesos",{email:usuario||"—",accion:"rot_politica",detalle:("["+producto+"] LimMax="+lim+" días · "+(allYear?"todo "+anio:MESES_N[mes]+" "+anio)).slice(0,240)}); }catch(e){}
+    (typeof showSuccess==="function")?showSuccess("✓ "+producto+" · "+lim+" días"+(allYear?" (todo "+anio+")":"")):null; renderContent();
+  }catch(e){ console.error("[rotPolGuardar]",e); showError("Error: "+(e?.message||e)); }
+}
+window.rotPolGuardar=rotPolGuardar;
+
+// ── Rotación · Loader IMB (Ingresos) ──
+let _imbPreview=null;
+async function rotImbLeer(){
+  const fileEl=document.getElementById("imb-archivo"), pv=document.getElementById("imb-preview"), btn=document.getElementById("imb-btn");
+  if(!fileEl?.files?.length) return;
+  pv.style.display="block"; pv.innerHTML='<div style="color:var(--grisMed);font-size:12px">⏳ Leyendo IMB...</div>'; _imbPreview=null; if(btn){btn.disabled=true;btn.style.opacity="0.5";}
+  try{
+    await _ensureXLSX();
+    const wb=XLSX.read(await fileEl.files[0].arrayBuffer(),{type:"array"});
+    let rows=null,bn=-1; wb.SheetNames.forEach(n=>{ const rr=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null}); if(rr.length>bn){bn=rr.length;rows=rr;} });
+    const norm=s=>String(s==null?"":s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+    let hIdx=-1;
+    for(let i=0;i<Math.min(rows.length,15);i++){ const t=(rows[i]||[]).map(norm); if(t.some(x=>x.includes("codigo producto")) && t.includes("cantidad")){ hIdx=i; break; } }
+    if(hIdx<0){ pv.innerHTML='<div style="color:#E03355;font-weight:700">❌ No encontré la cabecera (Código producto / Cantidad) en el reporte.</div>'; return; }
+    const hdr=rows[hIdx].map(norm);
+    const col=(...names)=>{ for(const n of names){ let i=hdr.indexOf(n); if(i<0) i=hdr.findIndex(h=>h.includes(n)); if(i>=0) return i; } return -1; };
+    const ci={cod:col("codigo producto","codigo"),cant:col("cantidad"),tot:col("total")};
+    const agg={};
+    for(let i=hIdx+1;i<rows.length;i++){ const r=rows[i]; if(!r) continue;
+      const cod=String(r[ci.cod]||"").trim(); if(!cod||cod.toUpperCase()==="IMB"||norm(cod).includes("total")) continue;
+      const cant=parseFloat(r[ci.cant]); if(isNaN(cant)) continue;
+      const tot=ci.tot>=0?(parseFloat(r[ci.tot])||0):0;
+      if(!agg[cod]) agg[cod]={cant:0,tot:0}; agg[cod].cant+=cant; agg[cod].tot+=tot;
+    }
+    const idE=parseInt(gVal("imb-empresa"));
+    const evalset=new Set((window._sbCache?.bod_rot_producto||[]).filter(p=>p.id_empresa===idE&&p.activo!==false).map(p=>p.producto));
+    const filt=Object.entries(agg).filter(([c])=>evalset.has(c)).sort((a,b)=>a[0].localeCompare(b[0]));
+    _imbPreview={agg:Object.fromEntries(filt)};
+    const _f0=v=>Math.round(v).toLocaleString("en-US");
+    pv.innerHTML='<div style="font-weight:700;color:var(--azul);margin-bottom:8px"><span style="color:#16A97A">✓</span> '+Object.keys(agg).length+' productos en el reporte · <b>'+filt.length+' evaluados</b></div>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','INGRESO (cant)','VALOR $'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i>0?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>'+
+      filt.map(([c,d])=>'<tr style="border-bottom:1px solid var(--borde)"><td style="padding:6px 8px;font-weight:600">'+esc(c)+'</td><td style="padding:6px 8px;text-align:right">'+_f0(d.cant)+'</td><td style="padding:6px 8px;text-align:right">$'+_f0(d.tot)+'</td></tr>').join('')+'</tbody></table>'+
+      (filt.length?'<div style="font-size:11px;color:var(--grisMed);margin-top:8px">Se guarda como Ingresos del mes seleccionado.</div>':'<div style="color:#B45309;font-size:11px;margin-top:8px">Ningún producto del reporte está en la lista de evaluados. Agregalos en <b>Rotación · Productos</b> primero.</div>');
+    if(btn&&filt.length){btn.disabled=false;btn.style.opacity="1";}
+  }catch(e){ console.error("[rotImbLeer]",e); pv.innerHTML='<div style="color:#E03355">❌ Error: '+esc(e.message)+'</div>'; }
+}
+window.rotImbLeer=rotImbLeer;
+async function rotImbGuardar(){
+  try{
+    if(!_imbPreview){ showError("Primero subí el reporte IMB."); return; }
+    const idE=parseInt(gVal("imb-empresa")), mes=parseInt(gVal("imb-mes")), anio=parseInt(gVal("imb-anio"));
+    if(!idE||!mes||!anio){ showError("Seleccioná empresa, mes y año."); return; }
+    const payload=Object.entries(_imbPreview.agg).map(([c,d])=>({id_empresa:idE,anio,mes,producto:c,ingreso_cant:Math.round(d.cant*100)/100,ingreso_usd:Math.round(d.tot*100)/100}));
+    if(!payload.length){ showError("No hay ingresos de productos evaluados."); return; }
+    const r=await fetch(SUPA_URL+"/rest/v1/bod_rot_ingreso?on_conflict=id_empresa,anio,mes,producto",{method:"POST",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(payload)});
+    if(!r.ok) throw new Error("upsert "+r.status+" "+(await r.text()).slice(0,120));
+    const cache=window._sbCache||{}; cache.bod_rot_ingreso=cache.bod_rot_ingreso||[];
+    payload.forEach(p=>{ const i=cache.bod_rot_ingreso.findIndex(x=>x.id_empresa===idE&&x.anio===anio&&x.mes===mes&&x.producto===p.producto); if(i>=0) cache.bod_rot_ingreso[i]={...cache.bod_rot_ingreso[i],...p}; else cache.bod_rot_ingreso.push(p); });
+    await _logCarga("BOD-IND-002 IMB Ingresos · "+payload.length+" productos · "+MESES_N[mes]+" "+anio);
+    _imbPreview=null;
+    (typeof showSuccess==="function")?showSuccess("✓ Ingresos guardados · "+payload.length+" productos · "+MESES_N[mes]+" "+anio):null; renderContent();
+  }catch(e){ console.error("[rotImbGuardar]",e); showError("Error: "+(e?.message||e)); }
+}
+window.rotImbGuardar=rotImbGuardar;
+
 // ── Cierre de mes de Confiabilidad de Inventarios (BOD-IND-001) ──────────
 // Congela la data del mes (Saldo Bodega + Conteo Físico) para que no se
 // sobrescriba tras presentarla. Guarda quién y cuándo + snapshot promedio.
@@ -5936,6 +6201,9 @@ function renderIngresoDatos(){
     {id:"bod-fisico",  icon:"📋", label:"Conteo Físico",          cat:"ABAS", gate:"Abastecimiento"},
     {id:"bod-conteo",  icon:"📱", label:"Conteo Rápido (móvil)",  cat:"ABAS", gate:"Abastecimiento"},
     {id:"bod-factor",  icon:"⚖️", label:"Conversiones (Sacos)",   cat:"ABAS", gate:"Abastecimiento"},
+    {id:"rot-imb",     icon:"📥", label:"Rotación · IMB Ingresos", cat:"ABAS", gate:"Abastecimiento"},
+    {id:"rot-productos",icon:"⚙️",label:"Rotación · Productos",    cat:"ABAS", gate:"Abastecimiento"},
+    {id:"rot-politicas",icon:"📏",label:"Rotación · Políticas",    cat:"ABAS", gate:"Abastecimiento"},
     {id:"rrhh-rot",       icon:"👥", label:"Rotación Personal",      cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-consultar", icon:"🔍", label:"Consultar Colaboradores", cat:"RRHH", gate:"RRHH"},
     {id:"rrhh-grupos",    icon:"🔁", label:"Asignar Grupos",          cat:"RRHH", gate:"RRHH"},
@@ -6507,6 +6775,63 @@ function renderIngresoDatos(){
     '</div>'+
     '<div id="conteo-cont" style="max-width:760px;margin:14px auto 0"><div style="padding:24px;text-align:center;color:var(--grisMed)">⏳ Cargando…</div></div>';
     setTimeout(()=>{ try{ conteoRecargar(); }catch(e){ console.error("[conteo]",e); } },40);
+
+  } else if(ingresoTab==="rot-productos"){
+    // ── Rotación · Productos a evaluar (CRUD gestor) ──
+    const c=window._sbCache||{}, fe=window._rotProdEmp||2, edit=window._rotProdEdit||null;
+    const eo=(c.empresas||[]).filter(e=>e.codigo!=='EQSOLUTIONS'&&e.activo).map(e=>'<option value="'+e.id+'"'+(e.id===fe?' selected':'')+'>'+esc(e.nombre)+' ('+esc(e.codigo)+')</option>').join('');
+    const list=(c.bod_rot_producto||[]).filter(p=>p.id_empresa===fe).sort((a,b)=>String(a.producto).localeCompare(String(b.producto)));
+    const ed=edit?list.find(x=>x.id===edit):null;
+    html += '<div class="ingreso-form"><div class="ingreso-form-title">⚙️ Rotación · Productos a evaluar — BOD-IND-002</div>'+
+      '<div class="ingreso-form-sub">Definí <b>qué productos</b> entran en el indicador de rotación (solo estos se calculan y grafican).</div>'+
+      '<div class="form-grid" style="grid-template-columns:repeat(4,1fr);gap:10px">'+
+        '<div class="form-group"><label class="form-label">Empresa</label><select id="rp-emp" class="form-select" onchange="window._rotProdEmp=parseInt(this.value);window._rotProdEdit=null;renderContent()">'+eo+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Producto (código)</label><input id="rp-cod" class="form-input" placeholder="BALHAICAM009" value="'+esc(ed?ed.producto:'')+'"'+(ed?' readonly style="background:#F1F5F9"':'')+'/></div>'+
+        '<div class="form-group"><label class="form-label">Nombre</label><input id="rp-nom" class="form-input" value="'+esc(ed?(ed.nombre||''):'')+'"/></div>'+
+        '<div class="form-group"><label class="form-label">Grupo</label><input id="rp-grp" class="form-input" placeholder="Balanceados y Químicos" value="'+esc(ed?(ed.grupo||''):'')+'"/></div></div>'+
+      '<div style="margin-top:12px;display:flex;gap:10px"><button class="submit-btn" onclick="rotProdGuardar()">💾 '+(ed?'Actualizar':'Agregar')+'</button>'+(ed?'<button onclick="window._rotProdEdit=null;renderContent()" style="background:transparent;border:1px solid var(--grisMed);color:var(--grisMed);padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Cancelar</button>':'')+'</div></div>';
+    html += '<div class="ingreso-recientes" style="margin-top:14px"><div class="section-title">Productos evaluados · '+list.length+'</div>';
+    if(!list.length) html+='<div style="padding:14px;text-align:center;color:var(--grisMed);font-size:12px">Sin productos. Corré la migración para precargar, o agregá aquí.</div>';
+    else { html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','NOMBRE','GRUPO','ESTADO','ACCIÓN'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===4?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
+      list.forEach(p=>{ const act=p.activo!==false; html+='<tr style="border-bottom:1px solid var(--borde)'+(act?'':';opacity:0.5')+'"><td style="padding:6px 8px;font-weight:700;color:#1E40AF">'+esc(p.producto)+'</td><td style="padding:6px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(p.nombre||'')+'">'+esc(p.nombre||'—')+'</td><td style="padding:6px 8px;font-size:10px">'+esc(p.grupo||'—')+'</td><td style="padding:6px 8px">'+(act?'<span style="color:#16A97A;font-weight:700">activo</span>':'<span style="color:var(--grisMed)">inactivo</span>')+'</td><td style="padding:6px 8px;text-align:right;white-space:nowrap"><button onclick="window._rotProdEdit='+p.id+';renderContent()" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">✏️</button><button onclick="rotProdToggle('+p.id+')" style="background:transparent;border:1px solid #B45309;color:#B45309;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">'+(act?'⏸':'▶️')+'</button><button onclick="rotProdEliminar('+p.id+')" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🗑</button></td></tr>'; });
+      html+='</tbody></table></div>'; }
+    html+='</div>';
+
+  } else if(ingresoTab==="rot-politicas"){
+    // ── Rotación · Políticas de días (Lím. Máx.) por producto/mes (auditado) ──
+    const c=window._sbCache||{}, fe=window._rotPolEmp||2;
+    const fa=window._rotPolAnio||(filtroPeriodo.anio>0?filtroPeriodo.anio:2026);
+    const fm=window._rotPolMes||(filtroPeriodo.mes>0?filtroPeriodo.mes:6);
+    const eo=(c.empresas||[]).filter(e=>e.codigo!=='EQSOLUTIONS'&&e.activo).map(e=>'<option value="'+e.id+'"'+(e.id===fe?' selected':'')+'>'+esc(e.nombre)+' ('+esc(e.codigo)+')</option>').join('');
+    const mo=MESES_N.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+((i+1)===fm?' selected':'')+'>'+m+'</option>').join('');
+    const ao=[2025,2026].map(a=>'<option value="'+a+'"'+(a===fa?' selected':'')+'>'+a+'</option>').join('');
+    const prods=(c.bod_rot_producto||[]).filter(p=>p.id_empresa===fe&&p.activo!==false).sort((a,b)=>String(a.producto).localeCompare(String(b.producto)));
+    const pol={}; (c.bod_rot_politica||[]).forEach(p=>{ if(p.id_empresa===fe&&p.anio===fa&&p.mes===fm) pol[p.producto]=p.lim_max_dias; });
+    html += '<div class="ingreso-form"><div class="ingreso-form-title">📏 Rotación · Políticas de días (Lím. Máx.) — BOD-IND-002</div>'+
+      '<div class="ingreso-form-sub">Días máximos de cobertura por producto. Pueden <b>variar mes a mes</b>; cada cambio queda <b>auditado</b>. Cargá el mes y editá cada límite.</div>'+
+      '<div class="form-grid" style="grid-template-columns:repeat(3,1fr);gap:10px">'+
+        '<div class="form-group"><label class="form-label">Empresa</label><select class="form-select" onchange="window._rotPolEmp=parseInt(this.value);renderContent()">'+eo+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Año</label><select class="form-select" onchange="window._rotPolAnio=parseInt(this.value);renderContent()">'+ao+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Mes</label><select class="form-select" onchange="window._rotPolMes=parseInt(this.value);renderContent()">'+mo+'</select></div></div>'+
+      '<div style="margin-top:8px;font-size:11px;color:var(--grisMed)">💡 Tip: podés copiar la política de un mes a todo el año con el botón de cada fila.</div></div>';
+    html += '<div class="ingreso-recientes" style="margin-top:14px"><div class="section-title">Políticas · '+MESES_N[fm]+' '+fa+' · '+prods.length+' productos</div>';
+    if(!prods.length) html+='<div style="padding:14px;text-align:center;color:var(--grisMed);font-size:12px">No hay productos evaluados para esta empresa.</div>';
+    else { html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','NOMBRE','LÍM. MÁX. (días)','ACCIÓN'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===2?';text-align:center':i===3?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
+      prods.forEach(p=>{ const v=pol[p.producto]; html+='<tr style="border-bottom:1px solid var(--borde)"><td style="padding:6px 8px;font-weight:700;color:#1E40AF">'+esc(p.producto)+'</td><td style="padding:6px 8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(p.nombre||'')+'">'+esc(p.nombre||'—')+'</td><td style="padding:6px 8px;text-align:center"><input id="rpol-'+esc(p.producto)+'" type="number" step="0.5" min="0" value="'+(v==null?'':esc(String(v)))+'" style="width:90px;height:34px;text-align:center;font-size:14px;font-weight:700;border:2px solid #16A0B8;border-radius:8px"/></td><td style="padding:6px 8px;text-align:right;white-space:nowrap"><button onclick="rotPolGuardar(\''+esc(p.producto)+'\',false)" style="background:#16A97A;color:#fff;border:none;padding:5px 11px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">💾 Mes</button><button onclick="rotPolGuardar(\''+esc(p.producto)+'\',true)" title="Aplicar a todo el año" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:5px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700">↻ Año</button></td></tr>'; });
+      html+='</tbody></table></div>'; }
+    html+='</div>';
+
+  } else if(ingresoTab==="rot-imb"){
+    // ── Rotación · Loader IMB (Ingresos) ──
+    html += '<div class="ingreso-form"><div class="ingreso-form-title">📥 Rotación · Cargar IMB (Ingresos) — BOD-IND-002</div>'+
+      '<div class="ingreso-form-sub">Subí el reporte <b>Movimientos de IMB</b> de Acosux. Se agregan las cantidades de <b>ingreso</b> por producto/mes (solo los productos evaluados). Los saldos vienen del <b>Saldo Bodega</b>.</div>'+
+      '<div class="form-grid">'+
+        '<div class="form-group"><label class="form-label">Empresa</label><select id="imb-empresa" class="form-select">'+empOpts+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Mes</label><select id="imb-mes" class="form-select">'+mesOpts+'</select></div>'+
+        '<div class="form-group"><label class="form-label">Año</label><select id="imb-anio" class="form-select">'+anioOpts+'</select></div>'+
+        '<div class="form-group form-full"><label class="form-label">Archivo IMB (.xls/.xlsx)</label><input type="file" id="imb-archivo" accept=".xls,.xlsx" class="form-input" onchange="rotImbLeer()" style="padding:8px"/></div></div>'+
+      '<div id="imb-preview" style="display:none;margin-top:14px;padding:14px;background:#F8FAFC;border:1px solid var(--borde);border-radius:8px"></div>'+
+      '<div style="margin-top:12px"><button class="submit-btn" id="imb-btn" onclick="rotImbGuardar()" disabled style="opacity:0.5">💾 Guardar Ingresos</button></div></div>';
 
   } else if(ingresoTab==="rrhh-rot"){
     // ── Tab Rotación · Listado de Empleados (modelo granular ACOSUX) ──
@@ -7885,6 +8210,17 @@ async function bodSaldoGuardar(){
     const payload=_bodPreview.list.map(p=>({id_empresa:idEmpresa,anio,mes,bodega:p.bodega,grupo:p.grupo,producto:p.producto,nombre:p.nombre,medida:p.medida,
       sistema_cant:p.stock,costo:p.costo,sistema_total:p.total,factor_saco:(facCfg[p.producto]>1?facCfg[p.producto]:undefined),fecha_corte:fc,fuente:"acosux",cargado_por:usuario,actualizado_en:nowIso}));
     await _bodUpsert(payload);
+    // Alimentar rotación (BOD-IND-002): saldo agregado por producto (evaluados)
+    try{
+      const evalset=new Set((window._sbCache?.bod_rot_producto||[]).filter(p=>p.id_empresa===idEmpresa&&p.activo!==false).map(p=>p.producto));
+      const byProd={};
+      _bodPreview.list.forEach(p=>{ if(!evalset.has(p.producto)) return; if(!byProd[p.producto]) byProd[p.producto]={nombre:p.nombre,cant:0,usd:0}; byProd[p.producto].cant+=p.stock; byProd[p.producto].usd+=p.total; });
+      const rpay=Object.entries(byProd).map(([c,d])=>({id_empresa:idEmpresa,anio,mes,producto:c,nombre:d.nombre,saldo_cant:Math.round(d.cant*100)/100,saldo_usd:Math.round(d.usd*100)/100,factor_saco:(facCfg[c]>1?facCfg[c]:null)}));
+      if(rpay.length){
+        const rr=await fetch(SUPA_URL+"/rest/v1/bod_rot_saldo?on_conflict=id_empresa,anio,mes,producto",{method:"POST",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rpay)});
+        if(rr.ok){ const cache=window._sbCache||{}; cache.bod_rot_saldo=cache.bod_rot_saldo||[]; rpay.forEach(p=>{ const i=cache.bod_rot_saldo.findIndex(x=>x.id_empresa===idEmpresa&&x.anio===anio&&x.mes===mes&&x.producto===p.producto); if(i>=0) cache.bod_rot_saldo[i]={...cache.bod_rot_saldo[i],...p}; else cache.bod_rot_saldo.push(p); }); }
+      }
+    }catch(e){ console.warn("[rot saldo feed]",e); }
     await _logCarga("BOD-IND-001 Saldo Bodega (Sistema) · "+payload.length+" productos · "+MESES_N[mes]+" "+anio);
     _bodPreview=null;
     (typeof showSuccess==="function")?showSuccess("✓ Sistema guardado · "+payload.length+" productos · "+MESES_N[mes]+" "+anio):null;
