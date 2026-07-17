@@ -1094,13 +1094,17 @@ async function supaGet(table, params){
   return r.json();
 }
 
-async function supaPost(table, body){
+async function supaPost(table, body, opts){
+  // opts.minimal → Prefer: return=minimal (no pide la fila de vuelta). Necesario en tablas
+  // con SELECT revocado por columna (ej. `usuarios`: anon no puede leer password_hash, así
+  // que return=representation en el INSERT rompía con "permission denied").
+  const minimal = !!(opts && opts.minimal);
   const r = await fetch(SUPA_URL+"/rest/v1/"+table, {
-    method:"POST", headers:{...SUPA_HDR,"Prefer":"return=representation"},
+    method:"POST", headers:{...SUPA_HDR,"Prefer":(minimal?"return=minimal":"return=representation")},
     body: JSON.stringify(body)
   });
   if(!r.ok) throw new Error("Supabase POST "+table+": "+(await r.text()).slice(0,200));
-  return r.json();
+  return minimal ? true : r.json();
 }
 
 // Auditoría de cargas: TODO loader de archivos debe registrar aquí (accion="carga").
@@ -8098,12 +8102,18 @@ function conteoRenderLista(){
       '<div style="font-size:11px;color:var(--grisMed);margin:3px 0 '+(r.reconteo_en?'6px':'9px')+';line-height:1.3">'+esc(r.nombre||'')+'</div>'+
       (r.reconteo_en?'<div title="Motivo: '+esc(r.reconteo_nota||'—')+' · por '+esc(r.reconteo_por||'—')+' · '+esc(String(r.reconteo_en).slice(0,10))+'" style="font-size:10px;color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:5px;padding:2px 8px;display:inline-block;margin-bottom:9px;cursor:help">🔁 Recontado: '+esc(String(r.reconteo_anterior))+' → '+esc(String(r.real_cant))+(r.reconteo_nota?' · '+esc(String(r.reconteo_nota).slice(0,40)):'')+'</div>':'')+
       '<div style="font-size:12px;color:var(--grisMed);margin-bottom:8px">Sistema: <b style="color:var(--azul);font-size:14px">'+_f0(sisC)+' '+esc(unidad)+'</b>'+(fac>1?' <span style="font-size:10px">('+_f0(r.sistema_cant)+' '+esc(r.medida||'KG')+' · saco ×'+fac+')</span>':'')+'</div>'+
-      '<div style="display:flex;align-items:center;gap:8px">'+
-        '<button '+(cerr?'disabled':'')+' onclick="conteoAdj('+r.id+',-1)" style="width:48px;height:48px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-size:24px;font-weight:800;color:#E03355;cursor:pointer;flex-shrink:0">−</button>'+
-        '<input id="cnt-in-'+r.id+'" type="number" inputmode="decimal" '+(cerr?'disabled':'')+' value="'+(yaCont?esc(String(r.real_cant)):esc(String(sisC)))+'" onfocus="this.select()" onchange="conteoGuardar('+r.id+')" style="flex:1;min-width:0;height:48px;text-align:center;font-size:20px;font-weight:800;border:2px solid #16A0B8;border-radius:12px;color:#0E7490"/>'+
-        '<button '+(cerr?'disabled':'')+' onclick="conteoAdj('+r.id+',1)" style="width:48px;height:48px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-size:24px;font-weight:800;color:#16A97A;cursor:pointer;flex-shrink:0">+</button>'+
-        '<button '+(cerr?'disabled':'')+' onclick="conteoGuardar('+r.id+')" title="Confirmar conteo" style="height:48px;padding:0 14px;border-radius:12px;border:none;background:#16A97A;color:#fff;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0">✓</button>'+
-      '</div>'+
+      (yaCont
+        ? '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'+
+            '<div style="font-size:22px;font-weight:800;color:#16A97A">'+_f0(r.real_cant)+' <span style="font-size:13px;color:var(--grisMed);font-weight:600">'+esc(unidad)+'</span>'+
+              ((+r.real_cant*fac)!==(+r.sistema_cant)?' <span style="font-size:11px;color:#B45309;font-weight:700">· '+((+r.real_cant*fac>+r.sistema_cant)?'+':'')+_f0((+r.real_cant*fac)-(+r.sistema_cant))+' '+esc(r.medida||'')+' vs sist.</span>':'')+'</div>'+
+            '<button '+(cerr?'disabled':'')+' onclick="conteoRecontar('+r.id+')" style="height:46px;padding:0 16px;border-radius:12px;border:1px solid #B45309;background:#FFFBEB;color:#B45309;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0;opacity:'+(cerr?'0.5':'1')+'">🔁 Recontar</button>'+
+          '</div>'
+        : '<div style="display:flex;align-items:center;gap:8px">'+
+            '<button '+(cerr?'disabled':'')+' onclick="conteoAdj('+r.id+',-1)" style="width:48px;height:48px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-size:24px;font-weight:800;color:#E03355;cursor:pointer;flex-shrink:0">−</button>'+
+            '<input id="cnt-in-'+r.id+'" type="number" inputmode="decimal" '+(cerr?'disabled':'')+' value="'+esc(String(sisC))+'" onfocus="this.select()" onchange="conteoGuardar('+r.id+')" style="flex:1;min-width:0;height:48px;text-align:center;font-size:20px;font-weight:800;border:2px solid #16A0B8;border-radius:12px;color:#0E7490"/>'+
+            '<button '+(cerr?'disabled':'')+' onclick="conteoAdj('+r.id+',1)" style="width:48px;height:48px;border-radius:12px;border:1px solid var(--borde);background:#fff;font-size:24px;font-weight:800;color:#16A97A;cursor:pointer;flex-shrink:0">+</button>'+
+            '<button '+(cerr?'disabled':'')+' onclick="conteoGuardar('+r.id+')" title="Confirmar conteo" style="height:48px;padding:0 14px;border-radius:12px;border:none;background:#16A97A;color:#fff;font-size:14px;font-weight:800;cursor:pointer;flex-shrink:0">✓</button>'+
+          '</div>')+
     '</div>';
   });
   if(!shown.length) h+='<div style="padding:18px;text-align:center;color:var(--grisMed);font-size:13px">'+(filtro==='pend'?'🎉 No quedan pendientes en esta bodega.':filtro==='cont'?'Todavía no hay productos contados.':'Ningún producto coincide con la búsqueda.')+'</div>';
@@ -8138,9 +8148,8 @@ async function _conteoGuardarGo(id){
   const raw=String(inp.value).trim();
   const val=raw===''?null:parseFloat(raw);
   if(raw!==''&&(isNaN(val)||val<0)){ _conteoStatus(id,'err'); return; }
-  const antes=row.real_cant;
-  // RECONTEO: cambiar un conteo YA registrado (no la primera vez) → pide motivo y se audita.
-  if(antes!=null && val!=null && val!==+antes){ conteoAbrirReconteo(id,+antes,val); return; }
+  // Primera carga del producto (fila pendiente). Cambiar un conteo YA registrado va por
+  // el botón explícito "🔁 Recontar" (conteoRecontar), que audita el cambio.
   await _conteoPatch(id,val,null);
 }
 
@@ -8163,24 +8172,28 @@ async function _conteoPatch(id,val,rec){
   }catch(e){ console.error("[conteoPatch]",e); _conteoStatus(id,'err'); }
 }
 
-function conteoAbrirReconteo(id,antes,val){
-  const row=(window._conteoAll||[]).find(r=>r.id===id);
-  _conteoStatus(id,'pend2');
-  openModal('<div class="modal-box"><button class="modal-close" onclick="conteoRecontarCancel('+id+','+antes+')">✕</button>'+
+// Botón explícito "🔁 Recontar" en cada producto ya contado → modal con nuevo valor + motivo.
+function conteoRecontar(id){
+  const ctx=window._conteoCtx||{}, row=(window._conteoAll||[]).find(r=>r.id===id); if(!row) return;
+  if(_bodCierre(ctx.emp,ctx.anio,ctx.mes)){ showError("El mes está cerrado — solo lectura."); return; }
+  const fac=+row.factor_saco>1?+row.factor_saco:1, unidad=fac>1?'sacos':(row.medida||'u'), antes=row.real_cant;
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
     '<div class="modal-title">🔁 Reconteo de inventario</div>'+
-    '<div class="modal-sub" style="margin-bottom:10px">'+esc(row?.producto||'')+' · '+esc(row?.nombre||'')+'</div>'+
-    '<div style="background:#F8FAFC;border:1px solid var(--borde);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:14px;text-align:center">Conteo anterior <b style="color:#E03355">'+antes+'</b> &nbsp;→&nbsp; nuevo <b style="color:#16A97A">'+val+'</b></div>'+
-    '<div style="font-size:11px;color:#92400E;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;padding:9px 12px;margin-bottom:12px;line-height:1.5">Estás cambiando un conteo <b>ya registrado</b>. Este reconteo queda en el <b>log de auditoría</b> (quién, cuándo, valor anterior → nuevo) y se marca en el producto. Usalo cuando se solicita un <b>procedimiento de reconteo</b> por una desviación difícil de creer.</div>'+
-    '<label class="form-label">Motivo del reconteo</label>'+
-    '<textarea id="recont-motivo" class="form-input" rows="2" placeholder="Ej: desviación reportada por Contabilidad, reconteo solicitado y verificado en sitio…" style="width:100%;resize:vertical"></textarea>'+
-    '<div class="modal-footer"><button class="btn-cancel" onclick="conteoRecontarCancel('+id+','+antes+')">Cancelar</button><button class="btn-save" onclick="_conteoRecontarGo('+id+','+antes+','+val+')">🔁 Registrar reconteo</button></div></div>');
+    '<div class="modal-sub" style="margin-bottom:10px">'+esc(row.producto||'')+' · '+esc(row.nombre||'')+'</div>'+
+    '<div style="background:#F8FAFC;border:1px solid var(--borde);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;text-align:center">Conteo actual: <b>'+antes+' '+esc(unidad)+'</b> &nbsp;·&nbsp; Sistema: <b>'+Math.round(fac>1?row.sistema_cant/fac:row.sistema_cant).toLocaleString("en-US")+' '+esc(unidad)+'</b></div>'+
+    '<label class="form-label">Nuevo conteo ('+esc(unidad)+')</label>'+
+    '<input id="recont-val" type="number" inputmode="decimal" class="form-input" value="'+esc(String(antes))+'" onfocus="this.select()" style="font-size:19px;font-weight:800;text-align:center"/>'+
+    '<div style="font-size:11px;color:#92400E;background:#FFFBEB;border:1px solid #FCD34D;border-radius:6px;padding:9px 12px;margin:12px 0;line-height:1.5">Este reconteo queda en el <b>log de auditoría</b> (quién, cuándo, valor anterior → nuevo) y se marca en el producto. Usalo cuando se solicita un <b>procedimiento de reconteo</b> por una desviación difícil de creer.</div>'+
+    '<label class="form-label">Motivo <span style="font-weight:400;color:var(--grisMed)">(opcional)</span></label>'+
+    '<textarea id="recont-motivo" class="form-input" rows="2" placeholder="Ej: desviación reportada, reconteo solicitado y verificado en sitio…" style="width:100%;resize:vertical"></textarea>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" onclick="_conteoRecontarGo('+id+','+antes+')">🔁 Registrar reconteo</button></div></div>');
 }
-window.conteoAbrirReconteo=conteoAbrirReconteo;
+window.conteoRecontar=conteoRecontar;
 
-function conteoRecontarCancel(id,antes){ closeModal(); const inp=document.getElementById("cnt-in-"+id); if(inp) inp.value=antes; _conteoStatus(id,'ok'); }
-window.conteoRecontarCancel=conteoRecontarCancel;
-
-async function _conteoRecontarGo(id,antes,val){
+async function _conteoRecontarGo(id,antes){
+  const raw=String(document.getElementById("recont-val")?.value||"").trim();
+  const val=raw===''?null:parseFloat(raw);
+  if(raw===''||isNaN(val)||val<0){ showError("Ingresá un nuevo conteo válido."); return; }
   const nota=(document.getElementById("recont-motivo")?.value||"").trim();
   closeModal();
   await _conteoPatch(id,val,{anterior:antes,nota});
@@ -12684,17 +12697,23 @@ function checkPwdStrength(){
 }
 
 async function guardarNuevoUsuario(){
-  const nombre=gVal("m-nombre").trim(), email=gVal("m-email").trim().toLowerCase(), rol=gVal("m-rol"), pwd=gVal("m-pwd");
-  const empId=(rol==="cliente"||rol==="cliente_gerente")?parseInt(gVal("m-empresa")):null;
-  if(!nombre||!email||!pwd){showError("Completa todos los campos.");return;}
-  if(pwd.length<8){showError("Mínimo 8 caracteres.");return;}
-  if(queryAll("SELECT id FROM usuarios WHERE email=?",[email]).length){showError("Email ya registrado.");return;}
-  const hash=await sha256(pwd);
-  await supaPost("usuarios",{nombre,email,rol,id_empresa:empId,password_hash:hash,activo:true,creado_por:sesion.email});
-  await supaPost("log_accesos",{email:sesion.email,accion:"user_created",detalle:"Creó "+email});
-  window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
-  window._sbCache.log_accesos = await supaGet("log_accesos","select=*&order=creado_en.desc&limit=30");
-  closeModal(); showSuccess("✓ Usuario "+nombre+" creado"); renderContent();
+  try{
+    const nombre=gVal("m-nombre").trim(), email=gVal("m-email").trim().toLowerCase(), rol=gVal("m-rol"), pwd=gVal("m-pwd");
+    const empId=(rol==="cliente"||rol==="cliente_gerente")?parseInt(gVal("m-empresa")):null;
+    if(!nombre||!email||!pwd){showError("Completa todos los campos.");return;}
+    if(pwd.length<8){showError("Mínimo 8 caracteres.");return;}
+    if(queryAll("SELECT id FROM usuarios WHERE email=?",[email]).length){showError("Email ya registrado.");return;}
+    const hash=await sha256(pwd);
+    // minimal: usuarios tiene SELECT revocado por columna (password_hash) → return=representation rompe.
+    await supaPost("usuarios",{nombre,email,rol,id_empresa:empId,password_hash:hash,activo:true,creado_por:sesion.email},{minimal:true});
+    await supaPost("log_accesos",{email:sesion.email,accion:"user_created",detalle:"Creó "+email});
+    window._sbCache.usuarios = await supaGet("usuarios","select=id,email,nombre,rol,id_empresa,activo,ultimo_acceso");
+    window._sbCache.log_accesos = await supaGet("log_accesos","select=*&order=creado_en.desc&limit=30");
+    closeModal(); showSuccess("✓ Usuario "+nombre+" creado"); renderContent();
+  }catch(e){
+    console.error("[guardarNuevoUsuario]", e);
+    showError("No se pudo crear el usuario: "+(e?.message||e));
+  }
 }
 
 function modalEditarUsuario(id){
