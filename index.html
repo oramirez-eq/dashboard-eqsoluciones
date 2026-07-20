@@ -44,57 +44,6 @@
     .login-footer{text-align:center;margin-top:24px;font-size:10px;color:var(--grisMed)}
     .pw-wrap{position:relative}
 
-    /* ── ⚽ Balón Mundial 2026 — easter egg interactivo del login ── */
-    .login-card{position:relative}   /* anclaje del balón */
-    .wc-ball-wrap{
-      position:absolute; top:-58px; right:-26px;
-      width:96px; height:96px;
-      cursor:pointer; z-index:5;
-      filter:drop-shadow(0 10px 18px rgba(0,0,0,.35));
-      transition:transform .25s ease;
-    }
-    .wc-ball-wrap:hover{transform:scale(1.12) translateY(-3px)}
-    .wc-ball{
-      width:100%; height:100%;
-      animation:wc-spin 6s linear infinite;
-      transform-origin:center;
-    }
-    .wc-ball-wrap:hover .wc-ball{animation-duration:1.6s}
-    .wc-ball.wc-bouncing{
-      animation:wc-bounce .65s cubic-bezier(.36,.07,.19,.97), wc-spin .9s linear infinite;
-    }
-    @keyframes wc-spin{to{transform:rotate(360deg)}}
-    @keyframes wc-bounce{
-      0%,100%{translate:0 0}
-      30%{translate:0 -36px}
-      55%{translate:0 -10px}
-      80%{translate:0 -3px}
-    }
-    .wc-badge{
-      position:absolute; top:74px; left:50%;
-      transform:translateX(-50%);
-      background:linear-gradient(135deg,#FFD700 0%,#FDB813 100%);
-      color:#0F1E37; font-size:8px; font-weight:900;
-      padding:4px 10px; border-radius:20px;
-      letter-spacing:.06em; text-transform:uppercase;
-      white-space:nowrap;
-      box-shadow:0 4px 10px rgba(253,184,19,.5);
-      pointer-events:none;
-      border:1.5px solid #003893;
-    }
-    .wc-badge .wc-count{
-      display:block; font-size:9px; color:#CE1126;
-      margin-top:1px; letter-spacing:.04em; font-weight:900;
-    }
-    .wc-flags{
-      position:absolute; top:115px; left:50%;
-      transform:translateX(-50%);
-      font-size:14px; letter-spacing:2px;
-      pointer-events:none; opacity:.9;
-    }
-    .pw-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:var(--grisMed)}
-    .pwd-strength{height:3px;border-radius:2px;margin-top:6px;transition:all .3s;background:var(--grisLight)}
-
     /* HEADER */
     #header{background:var(--blanco);border-top:4px solid var(--tq);border-bottom:1px solid var(--borde);padding:0 14px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(26,55,86,.08)}
     #header-top{display:flex;justify-content:space-between;align-items:center;height:64px}
@@ -780,7 +729,7 @@
     .sb-subitem.active .sb-subitem-code { color:#00B4AA; }
     /* ── Fin Sidebar ──────────────────────────────────────── */
 
-    </style></head><body><div id="loading-screen"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQ"/><div class="loading-bar"><div class="loading-fill"></div></div><div class="loading-text" id="loading-text">Iniciando...</div></div><div id="login-screen" class="hidden"><div class="login-card"><div class="wc-ball-wrap" onclick="wcBounce(this);wcShowFixtures()" title="¡VAMOS ECUADOR! SI SE PUEDE 🇪🇨 · Ver calendario"><div class="wc-ball"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="wc-sheen" cx="30%" cy="26%" r="72%"><stop offset="0%" stop-color="#FFF" stop-opacity=".75"/><stop offset="40%" stop-color="#FFF" stop-opacity=".1"/><stop offset="100%" stop-color="#FFF" stop-opacity="0"/></radialGradient><radialGradient id="wc-shadow" cx="50%" cy="50%" r="50%"><stop offset="55%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".4"/></radialGradient><clipPath id="wc-clip"><circle cx="50" cy="50" r="48"/></clipPath></defs><circle cx="50" cy="50" r="48" fill="#FFFFFF"/><g clip-path="url(#wc-clip)"><!-- Panel TL: ECUADOR (amarillo) --><path d="M50,2 C28,5 12,18 5,40 C18,38 30,32 40,28 C46,18 49,9 50,2 Z" fill="#FFD700"/><!-- Sol andino simbólico (Ecuador) --><g transform="translate(22,22)"><circle r="3.2" fill="#CE1126"/><g stroke="#003893" stroke-width=".9" stroke-linecap="round"><line x1="0" y1="-5" x2="0" y2="-7.5"/><line x1="3.5" y1="-3.5" x2="5.3" y2="-5.3"/><line x1="5" y1="0" x2="7.5" y2="0"/><line x1="3.5" y1="3.5" x2="5.3" y2="5.3"/><line x1="0" y1="5" x2="0" y2="7.5"/><line x1="-3.5" y1="3.5" x2="-5.3" y2="5.3"/><line x1="-5" y1="0" x2="-7.5" y2="0"/><line x1="-3.5" y1="-3.5" x2="-5.3" y2="-5.3"/></g></g><!-- Panel TR: CANADÁ (rojo) --><path d="M50,2 C72,5 88,18 95,40 C82,38 70,32 60,28 C54,18 51,9 50,2 Z" fill="#CE1126"/><!-- Hoja de arce estilizada (Canadá) --><g transform="translate(75,22)" fill="#FFFFFF"><path d="M0,-7 L1.8,-3.5 L5,-4 L3.5,0 L7,1 L3,3 L4,7 L0,4 L-4,7 L-3,3 L-7,1 L-3.5,0 L-5,-4 L-1.8,-3.5 Z"/></g><!-- Panel BR: MÉXICO (verde) --><path d="M95,40 C98,62 88,84 70,95 C68,82 64,70 60,62 C72,56 84,48 95,40 Z" fill="#006847"/><!-- Sol/Águila azteca simplificada (México) --><g transform="translate(78,68)"><circle r="3.5" fill="#FFD700" stroke="#FFFFFF" stroke-width=".5"/><g stroke="#FFFFFF" stroke-width="1.1" stroke-linecap="round"><line x1="0" y1="-5.5" x2="0" y2="-8.5"/><line x1="4" y1="-4" x2="6" y2="-6"/><line x1="5.5" y1="0" x2="8.5" y2="0"/><line x1="4" y1="4" x2="6" y2="6"/><line x1="0" y1="5.5" x2="0" y2="8.5"/><line x1="-4" y1="4" x2="-6" y2="6"/><line x1="-5.5" y1="0" x2="-8.5" y2="0"/><line x1="-4" y1="-4" x2="-6" y2="-6"/></g></g><!-- Panel BL: USA (azul) --><path d="M5,40 C2,62 12,84 30,95 C32,82 36,70 40,62 C28,56 16,48 5,40 Z" fill="#003893"/><!-- Estrellas (USA) --><g fill="#FFFFFF"><path d="M22,68 L23.2,71 L26.4,71 L23.8,73 L24.8,76 L22,74.2 L19.2,76 L20.2,73 L17.6,71 L20.8,71 Z"/><path d="M30,78 L30.9,80.2 L33.3,80.2 L31.3,81.7 L32.1,84 L30,82.6 L27.9,84 L28.7,81.7 L26.7,80.2 L29.1,80.2 Z"/><path d="M16,55 L16.9,57.2 L19.3,57.2 L17.3,58.7 L18.1,61 L16,59.6 L13.9,61 L14.7,58.7 L12.7,57.2 L15.1,57.2 Z"/></g><!-- Costuras blancas punteadas en los bordes --><path d="M50,2 C28,5 12,18 5,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M50,2 C72,5 88,18 95,40" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M95,40 C98,62 88,84 70,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><path d="M5,40 C2,62 12,84 30,95" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".7"/><!-- "Onda" central que conecta los paneles --><path d="M40,28 Q50,40 60,28" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><path d="M40,62 Q50,50 60,62" fill="none" stroke="#FFF" stroke-width=".6" stroke-dasharray="1.5 1.2" opacity=".55"/><!-- Núcleo central: insignia "26" --><circle cx="50" cy="50" r="11" fill="#FFFFFF" stroke="#0F1E37" stroke-width="1.1"/><circle cx="50" cy="50" r="9.5" fill="none" stroke="#FFD700" stroke-width=".8"/><text x="50" y="47" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="4.5" font-weight="900" fill="#0F1E37" letter-spacing=".5">MUNDIAL</text><text x="50" y="55" text-anchor="middle" font-family="'Arial Black',Arial,sans-serif" font-size="8" font-weight="900" fill="#CE1126">26</text></g><!-- Brillo + sombra global --><circle cx="50" cy="50" r="48" fill="url(#wc-sheen)" pointer-events="none"/><circle cx="50" cy="50" r="48" fill="url(#wc-shadow)" pointer-events="none"/><!-- Borde exterior --><circle cx="50" cy="50" r="48" fill="none" stroke="#0F1E37" stroke-width="1.8"/></svg></div><div class="wc-badge">⚽ Mundial 2026<span class="wc-count" id="wc-countdown">cargando...</span></div><div class="wc-flags">🇦🇷 🇲🇽 🇺🇸 🇨🇦</div></div><div class="login-logo"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQSolutions"/></div><div class="login-divider"></div><div class="login-title">Acceso al Dashboard</div><div class="login-sub">Ingresa tus credenciales para continuar</div><div class="login-error" id="login-error"></div><div class="form-group"><label class="form-label">Correo electr&oacute;nico</label><input type="email" id="login-email" class="form-input" placeholder="usuario@empresa.com"/></div><div class="form-group"><label class="form-label">Contrase&ntilde;a</label><div class="pw-wrap"><input type="password" id="login-pwd" class="form-input" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/><button class="pw-toggle" id="pw-eye" onclick="togglePwd()">&#128065;</button></div></div><button class="login-btn" id="login-btn" onclick="doLogin()">Ingresar</button><div class="login-footer"><span style="color:var(--tq);font-weight:700">EQ PLATFORM</span> &copy; 2026</div></div></div><div id="sidebar" class="collapsed" style="display:none">
+    </style></head><body><div id="loading-screen"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQ"/><div class="loading-bar"><div class="loading-fill"></div></div><div class="loading-text" id="loading-text">Iniciando...</div></div><div id="login-screen" class="hidden"><div class="login-card"><div class="login-logo"><img src="Manual%20de%20marca/Logo%20EQ%20Horizontal-Color.png" height="44" alt="EQSolutions"/></div><div class="login-divider"></div><div class="login-title">Acceso al Dashboard</div><div class="login-sub">Ingresa tus credenciales para continuar</div><div class="login-error" id="login-error"></div><div class="form-group"><label class="form-label">Correo electr&oacute;nico</label><input type="email" id="login-email" class="form-input" placeholder="usuario@empresa.com"/></div><div class="form-group"><label class="form-label">Contrase&ntilde;a</label><div class="pw-wrap"><input type="password" id="login-pwd" class="form-input" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"/><button class="pw-toggle" id="pw-eye" onclick="togglePwd()">&#128065;</button></div></div><button class="login-btn" id="login-btn" onclick="doLogin()">Ingresar</button><div class="login-footer"><span style="color:var(--tq);font-weight:700">EQ PLATFORM</span> &copy; 2026</div></div></div><div id="sidebar" class="collapsed" style="display:none">
   <!-- Header sidebar: logo + toggle -->
   <div id="sidebar-header">
     <img id="sidebar-logo" src="Manual%20de%20marca/Icono%20EQ%20Fondo%20Azul.png" alt="EQ"/>
@@ -1238,28 +1187,35 @@ async function cargarDBResto(){
       q("empresa_api_config", {select:"id,id_empresa,tipo_erp,proxy_url,activo"}),  // SEC-01: sin api_key/token en la carga global
       qp("comercial_precio_camaron_hist", "select=*&order=anio.desc,semana.desc"),
     ]);
-    // Aparte (tolerantes a tablas que pueden no existir todavía — DDL en migraciones)
-    const rrhh_calif_config = await q("rrhh_calif_config", {select:"*", order:"id_empresa.asc,indicador.asc"}).catch(()=>[]);
-    const usuario_acceso    = await q("usuario_acceso", {select:"*", order:"id_usuario.asc,id_empresa.asc,area.asc"}).catch(()=>[]);
-    // Config del indicador Cumplimiento Pago Proveedores (objetivo % + PB Cumplir).
-    // El DETALLE por documento (fin_pago_prov_corrida) NO se cachea — se consulta
-    // bajo demanda en el drill-down (crece ~2.3k filas por corrida semanal).
-    const fin_pago_prov_config = await q("fin_pago_prov_config", {select:"*"}).catch(()=>[]);
-    // TES-IND-002 Cartera Vencida (CxC) — serie mensual + config (tolerante: DDL en migración)
-    const fin_cxc_mensual = await q("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
-    const fin_cxc_config  = await q("fin_cxc_config",  {select:"*"}).catch(()=>[]);
-    const fin_cxc_cartera = await q("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc,total.desc", limit:5000}).catch(()=>[]);
-    const fin_cxp_mensual = await q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}).catch(()=>[]);
-    // BOD-IND-001 Confiabilidad de Inventarios — resumen ligero (solo columnas para el
-    // rollup Gerencial: la vista de detalle recarga producto a producto bajo demanda).
-    const bod_saldo_resumen = await qp("bod_saldo", "select=id_empresa,anio,mes,grupo,producto,sistema_cant,costo,real_cant,factor_saco&order=anio.asc,mes.asc").catch(()=>[]);
-    const bod_cierre = await q("bod_cierre", {select:"*", order:"anio.desc,mes.desc", limit:2000}).catch(()=>[]);
-    const bod_factor_config = await q("bod_factor_config", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}).catch(()=>[]);
-    // BOD-IND-002 Rotación de Inventario (tolerante: DDL en migración)
-    const bod_rot_producto = await q("bod_rot_producto", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}).catch(()=>[]);
-    const bod_rot_politica = await q("bod_rot_politica", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
-    const bod_rot_saldo    = await q("bod_rot_saldo", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
-    const bod_rot_ingreso  = await q("bod_rot_ingreso", {select:"*", order:"anio.asc,mes.asc", limit:20000}).catch(()=>[]);
+    // Lote 1-bis — tablas "aparte" (tolerantes a DDL pendiente). TODAS EN PARALELO:
+    // antes iban encadenadas con await una tras otra (14 viajes de red en serie) y eso
+    // sumaba varios segundos al login. `q`/`qp` ya devuelven [] si la tabla no existe.
+    const [
+      rrhh_calif_config, usuario_acceso, fin_pago_prov_config,
+      fin_cxc_mensual, fin_cxc_config, fin_cxc_cartera, fin_cxp_mensual,
+      bod_saldo_resumen, bod_cierre, bod_factor_config,
+      bod_rot_producto, bod_rot_politica, bod_rot_saldo, bod_rot_ingreso,
+    ] = await Promise.all([
+      q("rrhh_calif_config", {select:"*", order:"id_empresa.asc,indicador.asc"}),
+      q("usuario_acceso", {select:"*", order:"id_usuario.asc,id_empresa.asc,area.asc"}),
+      // Config de Cumplimiento Pago Proveedores. El DETALLE por documento
+      // (fin_pago_prov_corrida) NO se cachea — se consulta en el drill-down.
+      q("fin_pago_prov_config", {select:"*"}),
+      q("fin_cxc_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}),
+      q("fin_cxc_config",  {select:"*"}),
+      q("fin_cxc_cartera", {select:"*", order:"fecha_informe.desc,total.desc", limit:5000}),
+      q("fin_cxp_mensual", {select:"*", order:"anio.asc,mes.asc", limit:5000}),
+      // BOD-IND-001 — resumen ligero para el rollup Gerencial, acotado al año en curso
+      // y el anterior (si no, crece sin límite mes a mes). El detalle se recarga aparte.
+      qp("bod_saldo", "select=id_empresa,anio,mes,grupo,producto,sistema_cant,costo,real_cant,factor_saco&anio=gte."+((new Date()).getFullYear()-1)+"&order=anio.asc,mes.asc"),
+      q("bod_cierre", {select:"*", order:"anio.desc,mes.desc", limit:2000}),
+      q("bod_factor_config", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}),
+      // BOD-IND-002 Rotación de Inventario
+      q("bod_rot_producto", {select:"*", order:"id_empresa.asc,producto.asc", limit:5000}),
+      q("bod_rot_politica", {select:"*", order:"anio.asc,mes.asc", limit:20000}),
+      q("bod_rot_saldo", {select:"*", order:"anio.asc,mes.asc", limit:20000}),
+      q("bod_rot_ingreso", {select:"*", order:"anio.asc,mes.asc", limit:20000}),
+    ]);
     Object.assign(cache, {
       areas, indicadores, contratos,
       eq_balance_periodo, eq_balance_config, eq_presupuesto_anual,
@@ -1825,7 +1781,7 @@ function doLogout(){
 
 function mostrarApp(){
   document.getElementById("login-screen").classList.add("hidden");
-  // Si quedó algún modal abierto en el login (ej. calendario del Mundial), cerrarlo
+  // Si quedó algún modal abierto en el login, cerrarlo
   closeModal();
   ["header","content","footer"].forEach(id=>document.getElementById(id).classList.remove("hidden"));
   // Mostrar sidebar y sincronizar
@@ -13141,115 +13097,12 @@ async function confirmarToggle(id,activo,nombre){
 
 // ═══════════════════════════════════════════════════════════════
 // INIT
-// ═══════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════
-// ⚽ Mundial 2026 — easter egg interactivo del login
-// ═══════════════════════════════════════════════════════════════
-function wcBounce(el){
-  const ball = el.querySelector('.wc-ball');
-  if (!ball) return;
-  ball.classList.add('wc-bouncing');
-  setTimeout(() => ball.classList.remove('wc-bouncing'), 700);
-}
-window.wcBounce = wcBounce;
-
-// ════════ Calendario Mundial 2026 — Ecuador y Argentina ════════
-// Fixtures oficiales del sorteo (5 dic 2025). Horas en ECT (UTC-5).
-// Estadio/ciudad opcionales — si quedan vacíos, no se renderizan.
-const WC26_FIXTURES = {
-  EC: [
-    {fecha:'Dom 14/6', hora:'18:00 ECT', rival:'Costa de Marfil', estadio:'', ciudad:'', fase:'Grupo E · J1'},
-    {fecha:'Sáb 20/6', hora:'19:00 ECT', rival:'Curazao',         estadio:'', ciudad:'', fase:'Grupo E · J2'},
-    {fecha:'Jue 25/6', hora:'15:00 ECT', rival:'Alemania',        estadio:'', ciudad:'', fase:'Grupo E · J3'},
-  ],
-  AR: [
-    {fecha:'Mar 16/6', hora:'20:00 ECT', rival:'Argelia',  estadio:'', ciudad:'', fase:'Grupo J · J1'},
-    {fecha:'Lun 22/6', hora:'12:00 ECT', rival:'Austria',  estadio:'', ciudad:'', fase:'Grupo J · J2'},
-    {fecha:'Sáb 27/6', hora:'21:00 ECT', rival:'Jordania', estadio:'', ciudad:'', fase:'Grupo J · J3'},
-  ]
-};
-
-function wcShowFixtures(){
-  const renderEquipo = (cod, bandera, nombre, color, partidos) => {
-    const filas = partidos.map(p => `
-      <div style="background:#FFF;border-left:4px solid ${color};border-radius:6px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,0.04)">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px">
-          <div>
-            <div style="font-size:9px;color:var(--grisMed);font-weight:700;letter-spacing:.05em;text-transform:uppercase">${esc(p.fase)}</div>
-            <div style="font-size:13px;font-weight:800;color:var(--azul);margin-top:2px">${esc(nombre)} <span style="color:var(--grisMed);font-weight:600">vs</span> ${esc(p.rival)}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:13px;font-weight:800;color:${color};font-variant-numeric:tabular-nums">${esc(p.fecha)}</div>
-            <div style="font-size:10px;color:var(--grisMed);font-variant-numeric:tabular-nums">${esc(p.hora)}</div>
-          </div>
-        </div>
-        ${(p.estadio || p.ciudad) ? `<div style="font-size:10px;color:var(--grisMed);margin-top:4px">📍 ${[p.estadio, p.ciudad].filter(Boolean).map(esc).join(' · ')}</div>` : ''}
-      </div>`).join('');
-    return `
-      <div>
-        <div style="font-size:14px;font-weight:800;color:${color};margin-bottom:8px;font-family:Raleway,sans-serif;display:flex;align-items:center;gap:6px">
-          <span style="font-size:18px">${bandera}</span> ${esc(nombre)}
-        </div>
-        ${filas}
-      </div>`;
-  };
-  const html = `<div class="modal-box" style="width:520px;max-width:95vw">
-    <button class="modal-close" onclick="closeModal()">✕</button>
-    <div style="font-weight:800;color:var(--azul);font-size:18px;font-family:Raleway,sans-serif;margin-bottom:4px;display:flex;align-items:center;gap:8px">
-      🏆 Mundial 2026 · Calendario
-    </div>
-    <div style="font-size:11px;color:var(--grisMed);margin-bottom:16px">Partidos de Ecuador. Horas en hora local Ecuador (ECT, UTC-5).</div>
-    <div style="margin-bottom:14px">
-      ${renderEquipo('EC', '🇪🇨', 'Ecuador', '#FFD700', WC26_FIXTURES.EC)}
-    </div>
-    <div style="background:#F0F5FA;border-radius:6px;padding:10px 12px;font-size:11px;color:var(--azul);line-height:1.5;margin-bottom:12px">
-      <b>¡Vamos Ecuador!</b><br>
-      <span style="color:var(--grisMed)">Cuarto Mundial consecutivo para 🇪🇨 · Sede compartida México 🇲🇽 · Canadá 🇨🇦 · USA 🇺🇸</span>
-    </div>
-    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn-save" onclick="closeModal()">¡A jugar!</button>
-    </div>
-  </div>`;
-  openModal(html);
-}
-window.wcShowFixtures = wcShowFixtures;
-
-function _wcUpdateCountdown(){
-  const el = document.getElementById('wc-countdown');
-  if (!el) return;
-  // El Mundial 2026: inicio 11 jun (Azteca, CDMX), final ~19 jul.
-  // Comparación por DÍAS CALENDARIO (no por horas), así "mañana" significa
-  // exactamente el día siguiente sin importar la hora exacta de hoy.
-  const inicioFecha = new Date(2026, 5, 11);   // mes 5 = junio (0-indexed)
-  const finalFecha  = new Date(2026, 6, 19);   // mes 6 = julio
-  const hoyFecha    = new Date();
-  hoyFecha.setHours(0, 0, 0, 0);
-  inicioFecha.setHours(0, 0, 0, 0);
-  finalFecha.setHours(0, 0, 0, 0);
-  const diasIni = Math.round((inicioFecha - hoyFecha) / 86400000);
-  const diasFin = Math.round((finalFecha  - hoyFecha) / 86400000);
-  if (diasIni > 1) {
-    el.textContent = `Faltan ${diasIni} días`;
-  } else if (diasIni === 1) {
-    el.textContent = '¡Mañana arranca!';
-  } else if (diasIni === 0) {
-    el.innerHTML = '🔴 ¡HOY ARRANCA!';
-  } else if (diasFin >= 0) {
-    el.innerHTML = '🔴 ¡EN VIVO!';
-  } else {
-    el.textContent = '¡Hicimos historia!';
-  }
-}
-
 async function init(){
   try {
     // Fase 1: solo lo mínimo para validar credenciales (~1 s)
     await cargarDBMinimal();
     hideLoading();
     document.getElementById("login-screen").classList.remove("hidden");
-    // ⚽ Activar countdown del balón
-    _wcUpdateCountdown();
-    setInterval(_wcUpdateCountdown, 60000); // refresh cada minuto
     // Fase 2: en BACKGROUND mientras el usuario escribe sus credenciales,
     // se carga el resto del cache. Si el login termina antes que esto,
     // doLogin() espera la promesa. Si la promesa termina primero, no pasa nada.
