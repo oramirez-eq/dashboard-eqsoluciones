@@ -5852,10 +5852,14 @@ function _rotResumen(empId, anio, mes){
     const limmax=pIdx[p.producto+'|'+anio+'|'+mes];
     const cumpl=(real==null)?null:(real<=0?1:Math.min(1,(limmax||0)/real));
     const sj=sIdx[p.producto+'|'+anio+'|'+mes];
-    const factor=sj?(+sj.factor_saco||1):1;
-    const sacos=sj?Math.round((+sj.saldo_cant||0)/(factor>1?factor:1)):0;
+    // UND = unidad base del sistema (KG/GAL/LT) · CANT = saldo en esa unidad
+    // CONVER = cantidad convertida a saco/envase (null = no aplica, ej. Diesel en galones)
+    const cant=sj?(+sj.saldo_cant||0):0;
+    const und=sj?(sj.medida||''):'';
+    const cf=+p.conver_factor||0;                        // kg por saco (presentación)
+    const conver=(cf>1 && cant>0)?Math.round(cant/cf):null;
     const dolares=sj?(+sj.saldo_usd||0):0;
-    return {cod:p.producto, nombre:p.nombre, grupo:p.grupo, serie, real, limmax, cumpl, sacos, dolares, factor};
+    return {cod:p.producto, nombre:p.nombre, grupo:p.grupo, serie, real, limmax, cumpl, cant, und, conver, dolares};
   });
   const withData=rows.filter(r=>r.cumpl!=null);
   const total=withData.length?withData.reduce((a,r)=>a+r.cumpl,0)/withData.length:null;
@@ -5900,14 +5904,14 @@ function renderRotacionHTML(res, emp, anio, mes){
       '<span class="kpi-badge" style="background:'+col+'18;color:'+col+';border:1px solid '+col+'40;font-size:10px;padding:2px 8px">'+rat+'</span></div>'+
     '<div style="font-size:11px;color:var(--grisMed);line-height:1.6;flex:1;min-width:220px">Promedio del cumplimiento de <b>'+res.nConData+'</b> de '+res.nEval+' producto(s) evaluado(s). Cumplimiento = min(100%, Lím.Máx ÷ Real días).<br>Calificación: Excelente &gt;98% · Muy Bueno 95-98% · Bueno 90-94% · Regular 71-89% · Malo &lt;70%.</div>'+
   '</div>';
-  const cols=[{k:'cod',l:'PRODUCTO',a:'left'},{k:'nombre',l:'NOMBRE',a:'left'},{k:'real',l:'REAL (días)',a:'right'},{k:'limmax',l:'LÍM. MÁX.',a:'right'},{k:'cumpl',l:'CUMPLIMIENTO',a:'right'},{k:'sacos',l:'SACOS',a:'right'},{k:'dolares',l:'DÓLARES',a:'right'}];
+  const cols=[{k:'cod',l:'PRODUCTO',a:'left'},{k:'nombre',l:'NOMBRE',a:'left'},{k:'real',l:'REAL (días)',a:'right'},{k:'limmax',l:'LÍM. MÁX.',a:'right'},{k:'cumpl',l:'CUMPLIMIENTO',a:'right'},{k:'und',l:'UND',a:'center'},{k:'cant',l:'CANT',a:'right'},{k:'conver',l:'CONVER.',a:'right'},{k:'dolares',l:'DÓLARES',a:'right'}];
   const st=window._rotSort||{col:'cod',dir:'asc'};
   const trows=res.rows.slice().sort((a,b)=>{ let x=a[st.col],y=b[st.col];
     if(x==null&&y==null)return 0; if(x==null)return 1; if(y==null)return -1;
     if(typeof x==='string'||typeof y==='string') return st.dir==='asc'?String(x).localeCompare(String(y)):String(y).localeCompare(String(x));
     return st.dir==='asc'?x-y:y-x; });
   html+='<div class="card" style="padding:0;overflow-x:auto;margin-bottom:16px"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
-    '<thead><tr style="background:#F8FAFC;text-align:left">'+cols.map(c=>{ const on=st.col===c.k, arr=on?(st.dir==='asc'?' ▲':' ▼'):' ⇅'; return '<th onclick="rotSort(\''+c.k+'\')" title="Ordenar por '+c.l+'" style="padding:9px 10px;font-size:10px;color:'+(on?'var(--azul)':'#6B87A8')+';font-weight:700;cursor:pointer;user-select:none;white-space:nowrap'+(c.a==='right'?';text-align:right':'')+'">'+c.l+'<span style="opacity:'+(on?'1':'0.35')+'">'+arr+'</span></th>'; }).join('')+'</tr></thead><tbody>';
+    '<thead><tr style="background:#F8FAFC;text-align:left">'+cols.map(c=>{ const on=st.col===c.k, arr=on?(st.dir==='asc'?' ▲':' ▼'):' ⇅'; return '<th onclick="rotSort(\''+c.k+'\')" title="Ordenar por '+c.l+'" style="padding:9px 10px;font-size:10px;color:'+(on?'var(--azul)':'#6B87A8')+';font-weight:700;cursor:pointer;user-select:none;white-space:nowrap'+(c.a==='right'?';text-align:right':(c.a==='center'?';text-align:center':''))+'">'+c.l+'<span style="opacity:'+(on?'1':'0.35')+'">'+arr+'</span></th>'; }).join('')+'</tr></thead><tbody>';
   trows.forEach(r=>{
     const cp=r.cumpl==null?null:r.cumpl*100, cc=cp==null?'var(--grisMed)':_bodColor(_bodRatingPct(cp));
     html+='<tr style="border-bottom:1px solid var(--borde)">'+
@@ -5916,7 +5920,11 @@ function renderRotacionHTML(res, emp, anio, mes){
       '<td style="padding:8px 10px;text-align:right;font-weight:700">'+(r.real==null?'—':Math.round(r.real))+'</td>'+
       '<td style="padding:8px 10px;text-align:right">'+(r.limmax==null?'—':r.limmax)+'</td>'+
       '<td style="padding:8px 10px;text-align:right;font-weight:800;color:'+cc+'">'+(cp==null?'—':cp.toFixed(0)+'%')+'</td>'+
-      '<td style="padding:8px 10px;text-align:right">'+_f0(r.sacos)+'</td>'+
+      '<td style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--grisMed)">'+esc(r.und||'—')+'</td>'+
+      '<td style="padding:8px 10px;text-align:right">'+_f0(r.cant)+'</td>'+
+      '<td style="padding:8px 10px;text-align:right">'+(r.conver==null
+          ? '<span style="color:var(--grisMed)" title="Este producto no se convierte a saco (se maneja en '+esc(r.und||'su unidad base')+')">—</span>'
+          : _f0(r.conver)+' <span style="font-size:10px;color:var(--grisMed)">sacos</span>')+'</td>'+
       '<td style="padding:8px 10px;text-align:right">'+_f$(r.dolares)+'</td></tr>';
   });
   html+='</tbody></table></div>';
@@ -5966,7 +5974,10 @@ async function rotProdGuardar(){
     const idE=window._rotProdEmp||parseInt(gVal("rp-emp"))||2;
     const cod=(gVal("rp-cod")||"").trim(), nom=(gVal("rp-nom")||"").trim(), grp=(gVal("rp-grp")||"").trim();
     if(!cod){ showError("Ingresá el código del producto."); return; }
-    const data={id_empresa:idE,producto:cod,nombre:nom||null,grupo:grp||null,activo:true,creado_por:(typeof sesion!=="undefined"&&sesion?.email)||null};
+    const cfRaw=(gVal("rp-cf")||"").trim();
+    const cf=cfRaw===''?null:parseFloat(cfRaw);
+    if(cfRaw!=='' && (isNaN(cf)||cf<0)){ showError("Factor de conversión inválido."); return; }
+    const data={id_empresa:idE,producto:cod,nombre:nom||null,grupo:grp||null,conver_factor:cf,activo:true,creado_por:(typeof sesion!=="undefined"&&sesion?.email)||null};
     const res=await sbUpsert("bod_rot_producto",data,"id_empresa,producto");
     const saved=Array.isArray(res)?res[0]:res;
     const cache=window._sbCache||{}; cache.bod_rot_producto=cache.bod_rot_producto||[];
@@ -6762,16 +6773,18 @@ function renderIngresoDatos(){
     const ed=edit?list.find(x=>x.id===edit):null;
     html += '<div class="ingreso-form"><div class="ingreso-form-title">⚙️ Rotación · Productos a evaluar — BOD-IND-002</div>'+
       '<div class="ingreso-form-sub">Definí <b>qué productos</b> entran en el indicador de rotación (solo estos se calculan y grafican).</div>'+
-      '<div class="form-grid" style="grid-template-columns:repeat(4,1fr);gap:10px">'+
+      '<div class="form-grid" style="grid-template-columns:repeat(5,1fr);gap:10px">'+
         '<div class="form-group"><label class="form-label">Empresa</label><select id="rp-emp" class="form-select" onchange="window._rotProdEmp=parseInt(this.value);window._rotProdEdit=null;renderContent()">'+eo+'</select></div>'+
         '<div class="form-group"><label class="form-label">Producto (código)</label><input id="rp-cod" class="form-input" placeholder="BALHAICAM009" value="'+esc(ed?ed.producto:'')+'"'+(ed?' readonly style="background:#F1F5F9"':'')+'/></div>'+
         '<div class="form-group"><label class="form-label">Nombre</label><input id="rp-nom" class="form-input" value="'+esc(ed?(ed.nombre||''):'')+'"/></div>'+
-        '<div class="form-group"><label class="form-label">Grupo</label><input id="rp-grp" class="form-input" placeholder="Balanceados y Químicos" value="'+esc(ed?(ed.grupo||''):'')+'"/></div></div>'+
+        '<div class="form-group"><label class="form-label">Grupo</label><input id="rp-grp" class="form-input" placeholder="Balanceados y Químicos" value="'+esc(ed?(ed.grupo||''):'')+'"/></div>'+
+        '<div class="form-group"><label class="form-label">Conver. (kg/saco)</label><input id="rp-cf" type="number" step="0.01" min="0" class="form-input" placeholder="25 · vacío = sin conversión" value="'+(ed&&ed.conver_factor!=null?esc(String(ed.conver_factor)):'')+'"/></div></div>'+
+      '<div style="font-size:11px;color:var(--grisMed);margin-top:6px">💡 <b>Conver.</b> = kg por saco/envase, solo para mostrar la columna CONVER del indicador. Dejalo vacío si el producto no se maneja en sacos (ej. Diesel en galones). No afecta el conteo físico de Confiabilidad.</div>'+
       '<div style="margin-top:12px;display:flex;gap:10px"><button class="submit-btn" onclick="rotProdGuardar()">💾 '+(ed?'Actualizar':'Agregar')+'</button>'+(ed?'<button onclick="window._rotProdEdit=null;renderContent()" style="background:transparent;border:1px solid var(--grisMed);color:var(--grisMed);padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px">Cancelar</button>':'')+'</div></div>';
     html += '<div class="ingreso-recientes" style="margin-top:14px"><div class="section-title">Productos evaluados · '+list.length+'</div>';
     if(!list.length) html+='<div style="padding:14px;text-align:center;color:var(--grisMed);font-size:12px">Sin productos. Corré la migración para precargar, o agregá aquí.</div>';
-    else { html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','NOMBRE','GRUPO','ESTADO','ACCIÓN'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===4?';text-align:right':'')+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
-      list.forEach(p=>{ const act=p.activo!==false; html+='<tr style="border-bottom:1px solid var(--borde)'+(act?'':';opacity:0.5')+'"><td style="padding:6px 8px;font-weight:700;color:#1E40AF">'+esc(p.producto)+'</td><td style="padding:6px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(p.nombre||'')+'">'+esc(p.nombre||'—')+'</td><td style="padding:6px 8px;font-size:10px">'+esc(p.grupo||'—')+'</td><td style="padding:6px 8px">'+(act?'<span style="color:#16A97A;font-weight:700">activo</span>':'<span style="color:var(--grisMed)">inactivo</span>')+'</td><td style="padding:6px 8px;text-align:right;white-space:nowrap"><button onclick="window._rotProdEdit='+p.id+';renderContent()" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">✏️</button><button onclick="rotProdToggle('+p.id+')" style="background:transparent;border:1px solid #B45309;color:#B45309;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">'+(act?'⏸':'▶️')+'</button><button onclick="rotProdEliminar('+p.id+')" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🗑</button></td></tr>'; });
+    else { html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">'+['PRODUCTO','NOMBRE','GRUPO','CONVER.','ESTADO','ACCIÓN'].map((h,i)=>'<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700'+(i===5?';text-align:right':(i===3?';text-align:center':''))+'">'+h+'</th>').join('')+'</tr></thead><tbody>';
+      list.forEach(p=>{ const act=p.activo!==false; html+='<tr style="border-bottom:1px solid var(--borde)'+(act?'':';opacity:0.5')+'"><td style="padding:6px 8px;font-weight:700;color:#1E40AF">'+esc(p.producto)+'</td><td style="padding:6px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(p.nombre||'')+'">'+esc(p.nombre||'—')+'</td><td style="padding:6px 8px;font-size:10px">'+esc(p.grupo||'—')+'</td><td style="padding:6px 8px;text-align:center;font-size:11px">'+(p.conver_factor!=null?'×'+esc(String(p.conver_factor))+' <span style="font-size:9px;color:var(--grisMed)">kg/saco</span>':'<span style="color:var(--grisMed)">—</span>')+'</td><td style="padding:6px 8px">'+(act?'<span style="color:#16A97A;font-weight:700">activo</span>':'<span style="color:var(--grisMed)">inactivo</span>')+'</td><td style="padding:6px 8px;text-align:right;white-space:nowrap"><button onclick="window._rotProdEdit='+p.id+';renderContent()" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">✏️</button><button onclick="rotProdToggle('+p.id+')" style="background:transparent;border:1px solid #B45309;color:#B45309;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;margin-right:5px">'+(act?'⏸':'▶️')+'</button><button onclick="rotProdEliminar('+p.id+')" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700">🗑</button></td></tr>'; });
       html+='</tbody></table></div>'; }
     html+='</div>';
 
@@ -8192,8 +8205,10 @@ async function bodSaldoGuardar(){
     try{
       const evalset=new Set((window._sbCache?.bod_rot_producto||[]).filter(p=>p.id_empresa===idEmpresa&&p.activo!==false).map(p=>p.producto));
       const byProd={};
-      _bodPreview.list.forEach(p=>{ if(!evalset.has(p.producto)) return; if(!byProd[p.producto]) byProd[p.producto]={nombre:p.nombre,cant:0,usd:0}; byProd[p.producto].cant+=p.stock; byProd[p.producto].usd+=p.total; });
-      const rpay=Object.entries(byProd).map(([c,d])=>({id_empresa:idEmpresa,anio,mes,producto:c,nombre:d.nombre,saldo_cant:Math.round(d.cant*100)/100,saldo_usd:Math.round(d.usd*100)/100,factor_saco:(facCfg[c]>1?facCfg[c]:null)}));
+      _bodPreview.list.forEach(p=>{ if(!evalset.has(p.producto)) return; if(!byProd[p.producto]) byProd[p.producto]={nombre:p.nombre,medida:p.medida,cant:0,usd:0}; byProd[p.producto].cant+=p.stock; byProd[p.producto].usd+=p.total; });
+      // medida = unidad base (KG/GAL). La conversión a sacos se calcula al mostrar,
+      // con bod_rot_producto.conver_factor (no se guarda cantidad convertida).
+      const rpay=Object.entries(byProd).map(([c,d])=>({id_empresa:idEmpresa,anio,mes,producto:c,nombre:d.nombre,medida:d.medida||null,saldo_cant:Math.round(d.cant*100)/100,saldo_usd:Math.round(d.usd*100)/100}));
       if(rpay.length){
         const rr=await fetch(SUPA_URL+"/rest/v1/bod_rot_saldo?on_conflict=id_empresa,anio,mes,producto",{method:"POST",headers:{apikey:SUPA_KEY,Authorization:"Bearer "+SUPA_KEY,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rpay)});
         if(rr.ok){ const cache=window._sbCache||{}; cache.bod_rot_saldo=cache.bod_rot_saldo||[]; rpay.forEach(p=>{ const i=cache.bod_rot_saldo.findIndex(x=>x.id_empresa===idEmpresa&&x.anio===anio&&x.mes===mes&&x.producto===p.producto); if(i>=0) cache.bod_rot_saldo[i]={...cache.bod_rot_saldo[i],...p}; else cache.bod_rot_saldo.push(p); }); }
