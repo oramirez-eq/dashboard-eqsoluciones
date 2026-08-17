@@ -2763,6 +2763,9 @@ function renderArea(area){
     html += renderTicHistorialMensual(filtros.empresa, anioF);
     // Tabla resumen solicitudes
     const mesesList = MESES_N.slice(1);
+    // Meses posteriores al mes evaluado (filtro, o el calendario si no hay filtro) → "fantasma"
+    const mesRefSol = mesF>0 ? mesF : (new Date().getMonth()+1);
+    const ghostSol = m => m>mesRefSol ? ';opacity:0.4' : '';
     let tblHeader = '<th style="background:var(--azul);color:#fff;padding:7px 10px;text-align:left;border:1px solid var(--borde);font-size:10px">Solicitudes</th>';
     mesesList.forEach(m=>{ tblHeader += '<th style="background:var(--azul);color:#fff;padding:7px 6px;text-align:center;border:1px solid var(--borde);font-size:10px">'+m.slice(0,3)+'</th>'; });
 
@@ -2770,20 +2773,20 @@ function renderArea(area){
     let tblRows="";
     estadosDef.forEach(ed=>{
       let celdas="";
-      mesesList.forEach(mes=>{ const val=resumenSol[mes]?.[ed.fld]||0; celdas+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;background:'+ed.bg+';color:'+(val>0?ed.col:"var(--grisMed)")+'">'+val+'</td>'; });
+      mesesList.forEach((mes,mi)=>{ const val=resumenSol[mes]?.[ed.fld]||0; celdas+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;background:'+ed.bg+';color:'+(val>0?ed.col:"var(--grisMed)")+ghostSol(mi+1)+'">'+val+'</td>'; });
       tblRows+='<tr><td style="padding:6px 10px;border:1px solid var(--borde);font-weight:600;color:'+ed.col+';background:'+ed.bg+'">'+ed.k+'</td>'+celdas+'</tr>';
     });
     // Total
     let totCeldas="";
-    mesesList.forEach(mes=>{ totCeldas+='<td style="padding:7px 6px;border:1px solid var(--borde);text-align:center;font-weight:800;background:var(--azul);color:#fff">'+(resumenSol[mes]?.total||0)+'</td>'; });
+    mesesList.forEach((mes,mi)=>{ totCeldas+='<td style="padding:7px 6px;border:1px solid var(--borde);text-align:center;font-weight:800;background:var(--azul);color:#fff'+ghostSol(mi+1)+'">'+(resumenSol[mes]?.total||0)+'</td>'; });
     tblRows+='<tr><td style="padding:7px 10px;border:1px solid var(--borde);font-weight:800;background:var(--azul);color:#fff">Total</td>'+totCeldas+'</tr>';
     // %
     let pctCeldas="";
-    mesesList.forEach(mes=>{
+    mesesList.forEach((mes,mi)=>{
       const t=resumenSol[mes]?.total||0, at=resumenSol[mes]?.at||0;
       const pct=t>0?Math.round(at/t*100):null;
       const col=pct===100?"var(--verde)":pct>=85?"var(--amarillo)":pct!==null?"var(--rojo)":"var(--grisMed)";
-      pctCeldas+='<td style="padding:5px 6px;border:1px solid var(--borde);text-align:center;font-weight:700;color:'+col+';background:#EBF6FB;font-size:10px">'+(pct!==null?pct+"%":"")+'</td>';
+      pctCeldas+='<td style="padding:5px 6px;border:1px solid var(--borde);text-align:center;font-weight:700;color:'+col+';background:#EBF6FB;font-size:10px'+ghostSol(mi+1)+'">'+(pct!==null?pct+"%":"")+'</td>';
     });
     tblRows+='<tr><td style="padding:5px 10px;border:1px solid var(--borde);background:#EBF6FB"></td>'+pctCeldas+'</tr>';
 
@@ -2808,13 +2811,14 @@ function renderArea(area){
       const hMes={}; for(let m=1;m<=12;m++) hMes[m]=0;
       evAll.forEach(e=>{ const mi=MESES_N.indexOf(e.mes); if(mi>=1) hMes[mi]+=(parseFloat(e.horas_desconexion)||0); });
       const mesRefI = mesF>0 ? mesF : (new Date().getMonth()+1);
+      const ghostI = m => m>mesRefI ? ';opacity:0.4' : '';
       let thh='<th style="background:var(--azul);color:#fff;padding:7px 10px;text-align:left;border:1px solid var(--borde);font-size:10px">Servicio</th>';
       for(let m=1;m<=12;m++) thh+='<th style="background:var(--azul);color:#fff;padding:7px 6px;text-align:center;border:1px solid var(--borde);font-size:10px">'+MESES_N[m].slice(0,3)+'</th>';
       let rHrs='<tr><td style="padding:6px 10px;border:1px solid var(--borde);font-weight:600;color:var(--rojo);background:#fff6f6">Horas desconexión</td>';
-      for(let m=1;m<=12;m++){ const h=hMes[m]; rHrs+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;background:#fff6f6;color:'+(h>0?"var(--rojo)":"var(--grisMed)")+'">'+(h>0?h+"h":"0")+'</td>'; }
+      for(let m=1;m<=12;m++){ const h=hMes[m]; rHrs+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;background:#fff6f6;color:'+(h>0?"var(--rojo)":"var(--grisMed)")+ghostI(m)+'">'+(h>0?h+"h":"0")+'</td>'; }
       rHrs+='</tr>';
       let rEf='<tr><td style="padding:6px 10px;border:1px solid var(--borde);font-weight:700;color:var(--verde);background:#f0faf6">Efectividad %</td>';
-      for(let m=1;m<=12;m++){ const ef=Math.round((720-hMes[m])/720*1000)/10; const col=ef>=99?"var(--verde)":ef>=98?"var(--amarillo)":"var(--rojo)"; rEf+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;font-weight:700;color:'+col+';background:#f0faf6;font-size:10px">'+ef+'%</td>'; }
+      for(let m=1;m<=12;m++){ const ef=Math.round((720-hMes[m])/720*1000)/10; const col=ef>=99?"var(--verde)":ef>=98?"var(--amarillo)":"var(--rojo)"; rEf+='<td style="padding:6px 6px;border:1px solid var(--borde);text-align:center;font-weight:700;color:'+col+';background:#f0faf6;font-size:10px'+ghostI(m)+'">'+ef+'%</td>'; }
       rEf+='</tr>';
       html += '<div style="display:grid;grid-template-columns:1fr 300px;gap:16px;margin-bottom:16px">' +
         '<div class="card"><div class="section-title">Efectividad del Servicio de Internet — '+anioF+'</div>' +
