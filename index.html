@@ -6881,6 +6881,19 @@ function renderIngresoDatos(){
         html += '<tr style="border-bottom:1px solid var(--borde)"><td style="padding:8px">'+esc(empMap[s.emp]||"—")+'</td><td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">'+s.total+'</td><td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums">'+s.activos+'</td><td style="padding:8px;text-align:right;font-variant-numeric:tabular-nums;color:'+cgColor+';font-weight:600">'+s.conGrupo+(sinGrupo>0?' <span style="font-weight:400">('+sinGrupo+' sin grupo)</span>':'')+'</td><td style="padding:8px;font-size:11px;color:var(--grisMed);font-variant-numeric:tabular-nums">'+fmtFechaCarga(s.fecha)+'</td><td style="padding:8px;font-size:11px;color:var(--grisMed);overflow:hidden;text-overflow:ellipsis;max-width:180px;white-space:nowrap" title="'+esc(s.usuario||'')+'">'+esc(s.usuario||'—')+'</td></tr>';
       });
       html += '</tbody></table>';
+      const totSinGrupo = statsList.reduce((a,s)=>a+(s.total-s.conGrupo),0);
+      html += '<div style="margin-top:14px;padding:14px;border-radius:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;'+
+        (totSinGrupo>0 ? 'background:#FFF7E6;border:1px solid #F0C674' : 'background:#EAF7F1;border:1px solid #B6E3CF')+'">' +
+        '<div style="flex:1;min-width:220px">' +
+          '<div style="font-weight:800;color:var(--azul);font-size:13px">👥 Siguiente paso · Asignación de Grupo</div>' +
+          '<div style="font-size:12px;color:var(--grisMed);margin-top:2px">' +
+            (totSinGrupo>0
+              ? 'Hay <b style="color:#B8860B">'+totSinGrupo+' colaborador'+(totSinGrupo===1?'':'es')+' sin grupo</b>. Asígnale un grupo para que entren al cálculo de rotación por grupo.'
+              : 'Todos los colaboradores tienen grupo asignado. Puedes revisar o reasignar cuando quieras.') +
+          '</div>' +
+        '</div>' +
+        '<button class="submit-btn" style="background:'+(totSinGrupo>0?'#D4A012':'var(--azul)')+';white-space:nowrap" onclick="setIngresoTab(\'rrhh-grupos\')">Ir a Asignar Grupo →</button>' +
+      '</div>';
     }
     html += '</div>';
 
@@ -7380,19 +7393,36 @@ function renderIngresoDatos(){
         '<div class="form-group form-full"><label class="form-label">Puesto / Cargo solicitado</label><input type="text" id="req-puesto" class="form-input" maxlength="200" value="'+esc(v('puesto'))+'" placeholder="Ej: Operador de calderas"/></div>' +
         '<div class="form-group"><label class="form-label">Categoría del cargo</label><select id="req-categoria" class="form-select">'+CATS_CARGO.map(c=>'<option value="'+c+'"'+(v('categoria_cargo')===c?' selected':'')+'>'+CATS_LABEL[c]+'</option>').join('')+'</select></div>' +
         '<div class="form-group"><label class="form-label">Tipo de contratación</label><select id="req-tipo-contr" class="form-select">'+TIPOS_CONTR.map(t=>'<option value="'+t+'"'+(v('tipo_contratacion')===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>' +
-        '<div class="form-group"><label class="form-label">Año</label><input type="number" id="req-anio" class="form-input" min="2020" max="2050" value="'+(vNum('anio')||anioActual)+'"/></div>' +
-        '<div class="form-group"><label class="form-label">Mes del requerimiento</label><select id="req-mes-req" class="form-select">'+MESES_N.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+(v('mes_requerimiento')==(i+1)?' selected':'')+'>'+m+'</option>').join('')+'</select></div>' +
+        '<div class="form-group"><label class="form-label">Año <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><input type="number" id="req-anio" class="form-input" min="2020" max="2050" readonly title="Se completa solo según la Fecha recepción" style="background:#F1F5F9;color:var(--azul)" value="'+(vNum('anio')||anioActual)+'"/></div>' +
+        '<div class="form-group"><label class="form-label">Mes del requerimiento <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="req-mes-req" class="form-select" disabled title="Se completa solo según la Fecha recepción" style="background:#F1F5F9;color:var(--azul)">'+MESES_N.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+(v('mes_requerimiento')==(i+1)?' selected':'')+'>'+m+'</option>').join('')+'</select></div>' +
         '<div class="form-group"><label class="form-label">N° requerido</label><input type="number" id="req-num-req" class="form-input" min="1" value="'+(vNum('num_requerido')||1)+'"/></div>' +
         '<div class="form-group"><label class="form-label">N° contratado</label><input type="number" id="req-num-cont" class="form-input" min="0" value="'+(vNum('num_contratado')||0)+'"/></div>' +
-        '<div class="form-group"><label class="form-label">Fecha recepción</label><input type="date" id="req-f-recep" class="form-input" value="'+esc(v('fecha_recepcion'))+'"/></div>' +
-        '<div class="form-group"><label class="form-label">Fecha contratación</label><input type="date" id="req-f-contr" class="form-input" value="'+esc(v('fecha_contratacion'))+'"/></div>' +
+        '<div class="form-group"><label class="form-label">Fecha recepción</label><input type="date" id="req-f-recep" class="form-input" value="'+esc(v('fecha_recepcion'))+'" onchange="reqSyncRecep()"/></div>' +
+        '<div class="form-group"><label class="form-label">Fecha contratación</label><input type="date" id="req-f-contr" class="form-input" value="'+esc(v('fecha_contratacion'))+'" onchange="reqSyncContr()"/></div>' +
         '<div class="form-group"><label class="form-label">Fecha ingreso</label><input type="date" id="req-f-ingr" class="form-input" value="'+esc(v('fecha_ingreso'))+'"/></div>' +
-        '<div class="form-group"><label class="form-label">Mes de la contratación</label><select id="req-mes-cont" class="form-select"><option value="0">— Sin contratar aún —</option>'+MESES_N.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+(v('mes_contratacion')==(i+1)?' selected':'')+'>'+m+'</option>').join('')+'</select></div>' +
+        '<div class="form-group"><label class="form-label">Mes de la contratación <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="req-mes-cont" class="form-select" disabled title="Se completa solo según la Fecha contratación" style="background:#F1F5F9;color:var(--azul)"><option value="0">— Sin contratar aún —</option>'+MESES_N.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+(v('mes_contratacion')==(i+1)?' selected':'')+'>'+m+'</option>').join('')+'</select></div>' +
         '<div class="form-group"><label class="form-label">Semanas de contratación</label><input type="number" id="req-sem-cont" class="form-input" step="0.5" min="0" value="'+esc(v('semanas_contratacion'))+'"/></div>' +
         '<div class="form-group"><label class="form-label">Semanas adicionales</label><input type="number" id="req-sem-adic" class="form-input" step="0.5" value="'+esc(v('semanas_adicionales'))+'"/></div>' +
-        '<div class="form-group form-full"><label class="form-label">Nombre del colaborador contratado</label><input type="text" id="req-nombre-colab" class="form-input" maxlength="200" value="'+esc(v('nombre_colaborador'))+'" placeholder="Si aplica"/></div>' +
+        '<div class="form-group form-full"><label class="form-label">Nombre del colaborador contratado</label>' +
+          '<div style="display:flex;gap:8px">' +
+            '<input type="text" id="req-nombre-colab" class="form-input" maxlength="200" value="'+esc(v('nombre_colaborador'))+'" placeholder="Escribe o elige del listado de ingresos" style="flex:1"/>' +
+            '<button type="button" onclick="colabPickerAbrir()" style="white-space:nowrap;background:var(--tq);color:#fff;border:none;border-radius:6px;padding:0 14px;cursor:pointer;font-size:12px;font-weight:600">🔎 Elegir</button>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--grisMed);margin-top:3px">Al elegir del listado se completa también la <b>Fecha de ingreso</b>.</div>' +
+        '</div>' +
         '<div class="form-group"><label class="form-label">Cumple estándar</label><select id="req-cumple" class="form-select">'+CUMPLE_OPS.map(o=>'<option value="'+o+'"'+(String(v('cumple')).toUpperCase()===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>' +
         '<div class="form-group form-full"><label class="form-label">Pendientes / Observaciones</label><textarea id="req-pendientes" class="form-input" rows="2" placeholder="Notas">'+esc(v('pendientes'))+'</textarea></div>' +
+        (isEdit ? ('<div class="form-group form-full" style="background:#F8FAFC;border:1px dashed var(--borde);border-radius:8px;padding:12px"><label class="form-label">📎 Evidencia del requerimiento firmado</label>' +
+          (editing.evidencia_url
+            ? '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><a href="'+esc(editing.evidencia_url)+'" target="_blank" rel="noopener" style="color:var(--tq);font-weight:700;font-size:12px;text-decoration:none">📄 Ver evidencia cargada</a><button type="button" onclick="reqEvidenciaQuitar('+editing.id+')" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">🗑 Quitar</button></div>'
+            : '<div style="font-size:11px;color:var(--grisMed);margin-bottom:8px">Aún sin evidencia. Sube el PDF/PNG del requerimiento que firma el solicitante.</div>') +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<input type="file" id="req-evidencia-file" accept=".pdf,.png,.jpg,.jpeg" class="form-input" style="padding:6px;flex:1;min-width:220px"/>' +
+            '<button type="button" onclick="reqSubirEvidencia('+editing.id+')" style="white-space:nowrap;background:var(--azul);color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:600">⬆️ Subir</button>' +
+            '<span id="req-evidencia-status" style="font-size:11px;color:var(--grisMed)"></span>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--grisMed);margin-top:4px">Máx. 8 MB · PDF, PNG o JPG.</div>' +
+        '</div>') : '') +
       '</div>' +
       '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">' +
         '<button class="submit-btn" onclick="reqGuardar('+(isEdit?editing.id:'null')+')">💾 '+(isEdit?'Actualizar Requerimiento':'Registrar Requerimiento')+'</button>' +
@@ -7400,31 +7430,55 @@ function renderIngresoDatos(){
         '<span style="font-size:11px;color:var(--grisMed);margin-left:auto">'+(isEdit?'Editando registro existente':'Los campos vacíos quedan en blanco · no son obligatorios excepto Puesto y N° requerido')+'</span>' +
       '</div></div>';
 
-    // Lista de requerimientos del año actual y empresa filtrada
-    const reqRows = (cache.rrhh_contratacion_procesos||[])
-      .filter(r => r.anio === anioActual)
-      .sort((a,b) => (b.fecha_recepcion||'').localeCompare(a.fecha_recepcion||''));
+    // Lista de requerimientos — obedece el filtro superior (empresa + año + mes),
+    // ordenable por columna (window._reqSort) y con scroll mostrando los 20 más recientes.
+    const empFiltroId = (cache.empresas||[]).find(e=>e.codigo===filtros.empresa)?.id || null;
+    const mesFiltro   = filtroPeriodo.mes>0 ? filtroPeriodo.mes : 0;
+    let reqRows = (cache.rrhh_contratacion_procesos||[]).filter(r => r.anio === anioActual);
+    if(empFiltroId) reqRows = reqRows.filter(r => r.id_empresa === empFiltroId);
+    if(mesFiltro)   reqRows = reqRows.filter(r => r.mes_requerimiento === mesFiltro);
+    const reqTotalAnio = (cache.rrhh_contratacion_procesos||[]).filter(r => r.anio === anioActual).length;
+    // Orden persistente entre renders
+    const RS = window._reqSort || (window._reqSort = {col:'fecha_recepcion', dir:'desc'});
+    const reqNumCols = {mes_requerimiento:1, num_requerido:1, semanas_contratacion:1};
+    const reqSortKey = (r) => {
+      const c = RS.col;
+      if(c==='empresa')       return (r.empresa_solicitante||empMapR[r.id_empresa]||'').toLowerCase();
+      if(reqNumCols[c])       return r[c]!=null ? +r[c] : -1;
+      return (r[c]==null?'':String(r[c])).toLowerCase();
+    };
+    reqRows.sort((a,b)=>{
+      const ka=reqSortKey(a), kb=reqSortKey(b);
+      let c = (typeof ka==='number' && typeof kb==='number') ? (ka-kb) : String(ka).localeCompare(String(kb));
+      return RS.dir==='asc' ? c : -c;
+    });
+    const LIM_REQ = 20;
+    const reqShown = reqRows.slice(0, LIM_REQ);
+    const empFiltroNom = (cache.empresas||[]).find(e=>e.codigo===filtros.empresa)?.nombre || filtros.empresa;
+    const mesFiltroTxt = mesFiltro ? ' · '+MESES_N[mesFiltro] : '';
     html += '<div class="ingreso-recientes" style="margin-top:20px">' +
       '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
-        '<span>Requerimientos registrados '+anioActual+' · '+reqRows.length+' total</span>' +
-        '<span style="font-size:10px;color:var(--grisMed);font-weight:500">Editar / Eliminar inline</span>' +
+        '<span>Requerimientos · '+esc(empFiltroNom)+' · '+anioActual+mesFiltroTxt+' · '+reqRows.length+(reqRows.length!==reqTotalAnio?' de '+reqTotalAnio+' del año':'')+'</span>' +
+        '<span style="font-size:10px;color:var(--grisMed);font-weight:500">Ordena por columna · '+(reqRows.length>LIM_REQ?('mostrando '+LIM_REQ+' más recientes · desliza para ver'):'Editar / Eliminar inline')+'</span>' +
       '</div>';
     if(reqRows.length===0){
-      html += '<div style="font-size:12px;color:var(--grisMed);padding:10px">Sin requerimientos registrados para '+anioActual+' · usa el formulario de arriba para añadir uno.</div>';
+      html += '<div style="font-size:12px;color:var(--grisMed);padding:10px">Sin requerimientos para '+esc(empFiltroNom)+' · '+anioActual+mesFiltroTxt+' · ajusta el filtro superior o usa el formulario de arriba.</div>';
     } else {
-      html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px"><thead><tr style="background:#F8FAFC;text-align:left">' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700">EMPRESA</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700">PUESTO</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">CAT</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">MES REQ</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">REQ/CONT</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700">F. RECEP</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700">F. CONTR</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">SEM</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">CUMPLE</th>' +
-        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">ACCIONES</th>' +
+      const arrowR = c => RS.col===c ? (RS.dir==='asc'?' ▲':' ▼') : '';
+      const thR = (label,col,align) => '<th style="padding:6px 8px;font-size:10px;color:'+(RS.col===col?'var(--tq)':'#6B87A8')+';font-weight:700;cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;background:#F1F5F9;z-index:1'+(align?';text-align:'+align:'')+'" onclick="reqSort(\''+col+'\')" title="Ordenar por '+label+'">'+label+arrowR(col)+'</th>';
+      html += '<div style="max-height:560px;overflow:auto;border:1px solid var(--borde);border-radius:8px;margin-top:6px"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="text-align:left">' +
+        thR('EMPRESA','empresa') +
+        thR('PUESTO','puesto') +
+        thR('CAT','categoria_cargo','center') +
+        thR('MES REQ','mes_requerimiento','center') +
+        thR('REQ/CONT','num_requerido','right') +
+        thR('F. RECEP','fecha_recepcion') +
+        thR('F. CONTR','fecha_contratacion') +
+        thR('SEM','semanas_contratacion','center') +
+        thR('CUMPLE','cumple','center') +
+        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right;position:sticky;top:0;background:#F1F5F9;z-index:1">ACCIONES</th>' +
       '</tr></thead><tbody>';
-      reqRows.forEach(r=>{
+      reqShown.forEach(r=>{
         const cumpleTxt = String(r.cumple||'').toUpperCase();
         const cumpleColor = /^CUMPLE$/.test(cumpleTxt) ? '#16A97A' : /^NO CUMPLE$/.test(cumpleTxt) ? '#E03355' : '#9CA3AF';
         const fmtFecha = s => s ? String(s).slice(0,10).split('-').reverse().join('/') : '—';
@@ -10803,15 +10857,21 @@ async function reqGuardar(idEditar){
     if(!idEmpresa){ showError('Selecciona la empresa.'); return; }
     if(!puesto)   { showError('El campo "Puesto / Cargo solicitado" es obligatorio.'); return; }
     if(numReq < 1){ showError('"N° requerido" debe ser ≥ 1.'); return; }
+    // Año/mes se derivan de las fechas (fuente única de verdad; los campos son AUTO).
+    const fRecep = gV('req-f-recep');
+    const fContr = gV('req-f-contr');
+    const anioReq = fRecep ? parseInt(fRecep.slice(0,4)) : (parseInt(gV('req-anio')) || new Date().getFullYear());
+    const mesReq  = fRecep ? parseInt(fRecep.slice(5,7)) : (parseInt(gV('req-mes-req')) || null);
+    const mesCont = fContr ? parseInt(fContr.slice(5,7)) : (parseInt(gV('req-mes-cont')) || null);
     const payload = {
       id_empresa: idEmpresa,
       empresa_solicitante: gV('req-empresa-sol') || null,
       puesto,
       categoria_cargo:    gV('req-categoria') || null,
       tipo_contratacion:  gV('req-tipo-contr') || null,
-      anio:               parseInt(gV('req-anio')) || new Date().getFullYear(),
-      mes_requerimiento:  parseInt(gV('req-mes-req')) || null,
-      mes_contratacion:   parseInt(gV('req-mes-cont')) || null,
+      anio:               anioReq,
+      mes_requerimiento:  mesReq,
+      mes_contratacion:   mesCont,
       num_requerido:      numReq,
       num_contratado:     parseInt(gV('req-num-cont')) || 0,
       fecha_recepcion:    gV('req-f-recep')  || null,
@@ -10842,6 +10902,141 @@ async function reqGuardar(idEditar){
   }
 }
 window.reqGuardar = reqGuardar;
+
+// Fecha recepción → Año + Mes del requerimiento (AUTO)
+function reqSyncRecep(){
+  const f = (document.getElementById('req-f-recep')?.value || '').trim();
+  if(!f) return;
+  const anio = document.getElementById('req-anio');
+  const mes  = document.getElementById('req-mes-req');
+  if(anio) anio.value = f.slice(0,4);
+  if(mes)  mes.value  = String(parseInt(f.slice(5,7)));
+}
+window.reqSyncRecep = reqSyncRecep;
+
+// Fecha contratación → Mes de la contratación (AUTO)
+function reqSyncContr(){
+  const f = (document.getElementById('req-f-contr')?.value || '').trim();
+  const mes = document.getElementById('req-mes-cont');
+  if(!mes) return;
+  mes.value = f ? String(parseInt(f.slice(5,7))) : '0';
+}
+window.reqSyncContr = reqSyncContr;
+
+// Orden de la lista de requerimientos por columna (toggle asc/desc)
+function reqSort(col){
+  const s = window._reqSort || (window._reqSort = {col:'fecha_recepcion', dir:'desc'});
+  if(s.col === col){ s.dir = s.dir==='asc' ? 'desc' : 'asc'; }
+  else { s.col = col; s.dir = (col==='fecha_recepcion'||col==='fecha_contratacion') ? 'desc' : 'asc'; }
+  renderContent();
+}
+window.reqSort = reqSort;
+
+// ── Picker de colaboradores (ingresos rrhh_empleado) para el requerimiento ──
+// Abre un modal buscable por apellidos/nombres; al seleccionar completa el
+// "Nombre del colaborador contratado" y la "Fecha de ingreso".
+function colabPickerAbrir(){
+  const cache = window._sbCache || {};
+  const empc = {}; (cache.empresas||[]).forEach(x=>{ empc[x.id]=x.codigo; });
+  const data = (cache.rrhh_empleado||[]).map(e=>({
+    apellidos:e.apellidos||'', nombres:e.nombres||'', cedula:e.cedula||'',
+    fecha_ingreso:e.fecha_ingreso||'', fecha_salida:e.fecha_salida||'', _empc:empc[e.id_empresa]||''
+  })).sort((a,b)=>(a.apellidos+' '+a.nombres).localeCompare(b.apellidos+' '+b.nombres));
+  data.forEach((e,i)=>{ e._idx=i; });
+  window._colabPickerData = data;
+  openModal('<div class="modal-box" style="max-width:580px">'+
+    '<button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🔎 Elegir colaborador contratado</div>'+
+    '<div class="modal-sub" style="margin-bottom:10px">Busca por <b>apellidos</b> o <b>nombres</b> ('+data.length+' ingresos). Al seleccionar se completa el nombre y la <b>Fecha de ingreso</b>.</div>'+
+    '<input id="colab-picker-q" type="text" class="form-input" placeholder="Escribe apellido o nombre…" oninput="colabPickerFiltrar()" autocomplete="off" style="margin-bottom:10px"/>'+
+    '<div id="colab-picker-list" style="max-height:360px;overflow:auto;border:1px solid var(--borde);border-radius:8px"></div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cerrar</button></div>'+
+  '</div>');
+  setTimeout(()=>{ colabPickerFiltrar(); const q=document.getElementById('colab-picker-q'); if(q) q.focus(); }, 30);
+}
+window.colabPickerAbrir = colabPickerAbrir;
+
+function colabPickerFiltrar(){
+  const cont = document.getElementById('colab-picker-list'); if(!cont) return;
+  const q = (document.getElementById('colab-picker-q')?.value||'').trim().toLowerCase();
+  const data = window._colabPickerData || [];
+  const norm = s => (s==null?'':String(s)).toLowerCase();
+  let rows = data;
+  if(q){ const terms = q.split(/\s+/); rows = data.filter(e=>{ const hay = norm(e.apellidos)+' '+norm(e.nombres)+' '+norm(e.cedula); return terms.every(t=>hay.includes(t)); }); }
+  const total = rows.length; rows = rows.slice(0,200);
+  if(total===0){ cont.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--grisMed)">Sin coincidencias para “'+esc(q)+'”.</div>'; return; }
+  const fmtFi = s => s ? String(s).slice(0,10).split('-').reverse().join('/') : 'sin fecha';
+  cont.innerHTML = rows.map(e=>{
+    const nom = esc((e.apellidos+' '+e.nombres).trim());
+    const baja = e.fecha_salida ? ' · <span style="color:#E03355;font-weight:600">baja</span>' : '';
+    return '<div onclick="colabPickerSelect('+e._idx+')" style="padding:9px 12px;border-bottom:1px solid var(--borde);cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center" onmouseover="this.style.background=\'#F1F5F9\'" onmouseout="this.style.background=\'transparent\'">'+
+      '<div style="min-width:0"><div style="font-weight:600;font-size:12px;color:var(--azul);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+nom+'</div>'+
+      '<div style="font-size:10px;color:var(--grisMed)">'+esc(e.cedula||'—')+' · '+esc(e._empc||'')+baja+'</div></div>'+
+      '<div style="font-size:11px;color:var(--tq);white-space:nowrap">📅 '+fmtFi(e.fecha_ingreso)+'</div>'+
+    '</div>';
+  }).join('') + (total>200 ? '<div style="padding:8px 12px;font-size:10px;color:var(--grisMed)">Mostrando 200 de '+total+' · afina la búsqueda</div>' : '');
+}
+window.colabPickerFiltrar = colabPickerFiltrar;
+
+function colabPickerSelect(idx){
+  const e = (window._colabPickerData||[])[idx]; if(!e) return;
+  const nombreInp = document.getElementById('req-nombre-colab');
+  const fInp = document.getElementById('req-f-ingr');
+  if(nombreInp) nombreInp.value = ((e.nombres||'')+' '+(e.apellidos||'')).trim();
+  if(fInp && e.fecha_ingreso) fInp.value = String(e.fecha_ingreso).slice(0,10);
+  closeModal();
+  if(typeof showSuccess==='function') showSuccess('✓ Colaborador cargado · fecha de ingreso completada');
+}
+window.colabPickerSelect = colabPickerSelect;
+
+// ── Evidencia (PDF/PNG del requerimiento firmado) — sólo al editar ──
+// Sube al bucket público `rrhh-requerimientos` y guarda la URL en el registro.
+async function reqSubirEvidencia(idReq){
+  try{
+    const inp = document.getElementById('req-evidencia-file');
+    const f = inp && inp.files && inp.files[0]; if(!f) return;
+    const ext = (f.name.split('.').pop()||'').toLowerCase();
+    const okExt = ['pdf','png','jpg','jpeg'];
+    if(!okExt.includes(ext)){ showError('Solo se admite PDF, PNG o JPG.'); return; }
+    if(f.size > 8*1024*1024){ showError('El archivo supera 8 MB. Comprime el documento.'); return; }
+    const status = document.getElementById('req-evidencia-status'); if(status){ status.textContent = 'Subiendo…'; status.style.color = 'var(--tq)'; }
+    const path = 'req-'+idReq+'-'+Date.now()+'.'+ext;
+    const ctype = ext==='pdf' ? 'application/pdf' : (ext==='png' ? 'image/png' : 'image/jpeg');
+    await sbStorageUpload('rrhh-requerimientos', path, f, ctype);
+    const url = sbStoragePublicUrl('rrhh-requerimientos', path);
+    await supaPatch('rrhh_contratacion_procesos', 'id=eq.'+idReq, { evidencia_url:url, actualizado_en:new Date().toISOString(), actualizado_por:(sesion?.email||'admin') });
+    const cache = window._sbCache||{};
+    const row = (cache.rrhh_contratacion_procesos||[]).find(r=>r.id===idReq); if(row) row.evidencia_url = url;
+    if(window._reqEditFila && window._reqEditFila.id===idReq) window._reqEditFila.evidencia_url = url;
+    if(typeof _logCarga==='function') _logCarga('RRHH · evidencia requerimiento #'+idReq+' ('+ext.toUpperCase()+')');
+    showSuccess('✓ Evidencia cargada');
+    renderContent();
+  }catch(e){
+    console.error('[reqSubirEvidencia]', e);
+    showError('No se pudo subir la evidencia: '+(e?.message||e));
+  }
+}
+window.reqSubirEvidencia = reqSubirEvidencia;
+
+function reqEvidenciaQuitar(idReq){
+  openModal('<div class="modal-box"><button class="modal-close" onclick="closeModal()">✕</button>'+
+    '<div class="modal-title">🗑 Quitar evidencia</div>'+
+    '<div class="modal-sub" style="margin-bottom:14px">Se desvincula el archivo del requerimiento #'+idReq+'. El registro queda sin evidencia (podrás subir otra).</div>'+
+    '<div class="modal-footer"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-save" style="background:#E03355" onclick="_reqEvidenciaQuitarGo('+idReq+')">🗑 Quitar</button></div></div>');
+}
+window.reqEvidenciaQuitar = reqEvidenciaQuitar;
+
+async function _reqEvidenciaQuitarGo(idReq){
+  closeModal();
+  try{
+    await supaPatch('rrhh_contratacion_procesos', 'id=eq.'+idReq, { evidencia_url:null, actualizado_en:new Date().toISOString(), actualizado_por:(sesion?.email||'admin') });
+    const cache = window._sbCache||{};
+    const row = (cache.rrhh_contratacion_procesos||[]).find(r=>r.id===idReq); if(row) row.evidencia_url = null;
+    if(window._reqEditFila && window._reqEditFila.id===idReq) window._reqEditFila.evidencia_url = null;
+    showSuccess('✓ Evidencia quitada'); renderContent();
+  }catch(e){ console.error('[reqEvidenciaQuitar]', e); showError('No se pudo quitar: '+(e?.message||e)); }
+}
+window._reqEvidenciaQuitarGo = _reqEvidenciaQuitarGo;
 
 function reqEditar(id){
   const fila = (window._sbCache?.rrhh_contratacion_procesos||[]).find(r => r.id===id);
