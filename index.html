@@ -6131,6 +6131,12 @@ async function confirmarCierreMesBod(empId,anio,mes){
     const cache=window._sbCache.bod_cierre=window._sbCache.bod_cierre||[];
     const i=cache.findIndex(c=>c.id_empresa===empId&&c.anio===anio&&c.mes===mes);
     if(i>=0) cache[i]={...cache[i],...data}; else cache.push(data);
+    try{
+      const emp=(window._sbCache?.empresas||[]).find(e=>e.id===empId);
+      await supaPost("log_accesos",{email:usuario||"—",accion:"cierre_mes",
+        detalle:("Confiabilidad Inventarios "+(emp?.codigo||"emp"+empId)+" · "+MESES_N[mes]+" "+anio+" cerrado"+(prom!=null?" · promedio "+prom+"%":"")).slice(0,240)});
+      if(window._sbCache?.log_accesos) window._sbCache.log_accesos.unshift({email:usuario||"—",accion:"cierre_mes",detalle:"Confiabilidad "+MESES_N[mes]+" "+anio+" cerrado",creado_en:nowIso});
+    }catch(e){ console.warn("[cierreBod log]",e); }
     (typeof showSuccess==="function")?showSuccess("✓ "+MESES_N[mes]+" "+anio+" cerrado — data congelada"):null;
     renderContent();
   }catch(e){ console.error("[cierreBod]",e); showError("Error al cerrar el mes: "+(e?.message||e)); }
@@ -6233,10 +6239,10 @@ function renderIngresoDatos(){
     html+='<div class="ingreso-form"><div class="ingreso-form-title">🌐 Registrar Evento de Desconexión</div><div class="ingreso-form-sub">Registra cada evento de pérdida o degradación del servicio de internet</div>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label class="form-label">Empresa</label><select id="ie-empresa" class="form-select">'+empOpts+'</select></div>' +
-      '<div class="form-group"><label class="form-label">Fecha del Evento</label><input type="date" id="ie-fecha" class="form-input" value="'+hoy+'"/></div>' +
+      '<div class="form-group"><label class="form-label">Fecha del Evento</label><input type="date" id="ie-fecha" class="form-input" value="'+hoy+'" onchange="eventoSyncMesAnio()"/></div>' +
       '<div class="form-group"><label class="form-label">Semana</label><input type="text" id="ie-semana" class="form-input" placeholder="Ej: Semana 12"/></div>' +
-      '<div class="form-group"><label class="form-label">Mes</label><select id="ie-mes" class="form-select">'+mesOpts+'</select></div>' +
-      '<div class="form-group"><label class="form-label">Año</label><select id="ie-anio" class="form-select">'+anioOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Mes <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="ie-mes" class="form-select" disabled title="Se completa solo según la Fecha del Evento" style="background:#F1F5F9;color:var(--azul);cursor:not-allowed">'+mesOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Año <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="ie-anio" class="form-select" disabled title="Se completa solo según la Fecha del Evento" style="background:#F1F5F9;color:var(--azul);cursor:not-allowed">'+anioOpts+'</select></div>' +
       '<div class="form-group"><label class="form-label">Horas de Desconexión</label><input type="number" id="ie-horas" class="form-input" placeholder="0.0" step="0.5" min="0"/></div>' +
       '<div class="form-group"><label class="form-label">Informa</label><input type="text" id="ie-informa" class="form-input" placeholder="Nombre del usuario que reporta"/></div>' +
       '<div class="form-group"><label class="form-label">Responsable</label><input type="text" id="ie-responsable" class="form-input" value="Líder TIC"/></div>' +
@@ -6246,15 +6252,16 @@ function renderIngresoDatos(){
     html+='<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimos eventos registrados</div>'+
       (recEvt.length?recEvt.map(r=>'<div class="reciente-item"><span class="reciente-icon">🌐</span><div><div class="reciente-texto">'+esc(r.descripcion||"—")+'</div><div style="font-size:10px;color:var(--grisMed)">'+(r.fecha_evento||"")+" · "+r.horas_desconexion+"h desconexión"+'</div></div><span class="reciente-empresa">'+esc(r.empresa)+'</span></div>').join(""):'<div style="font-size:12px;color:var(--grisMed)">Sin registros recientes</div>')+
       '</div>';
+    setTimeout(()=>{ try{ eventoSyncMesAnio(); }catch(e){} },30);
   } else if(ingresoTab==="ticket"){
     const srvOpts=["Soporte ERP","Soporte usuario","Soporte Redes","Configuración","Gestión de usuarios ERP/Mail/aplicativos","Gestión de usuarios ERP","Mantenimiento de equipos TI"].map(s=>'<option>'+s+'</option>').join("");
     const recTkt=queryAll("SELECT s.descripcion,s.fecha_solicitud,s.estado,emp.nombre AS empresa FROM solicitudes_tic s JOIN empresas emp ON emp.id=s.id_empresa ORDER BY s.creado_en DESC LIMIT 5");
     html+='<div class="ingreso-form"><div class="ingreso-form-title">🎫 Registrar Ticket de Atención</div><div class="ingreso-form-sub">Registra cada solicitud o ticket de soporte atendido</div>' +
       '<div class="form-grid">' +
       '<div class="form-group"><label class="form-label">Empresa</label><select id="it-empresa" class="form-select">'+empOpts+'</select></div>' +
-      '<div class="form-group"><label class="form-label">Fecha Solicitud</label><input type="date" id="it-fecha" class="form-input" value="'+hoy+'"/></div>' +
-      '<div class="form-group"><label class="form-label">Mes</label><select id="it-mes" class="form-select">'+mesOpts+'</select></div>' +
-      '<div class="form-group"><label class="form-label">Año</label><select id="it-anio" class="form-select">'+anioOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Fecha Solicitud</label><input type="date" id="it-fecha" class="form-input" value="'+hoy+'" onchange="ticketSyncMesAnio()"/></div>' +
+      '<div class="form-group"><label class="form-label">Mes <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="it-mes" class="form-select" disabled title="Se completa solo según la Fecha Solicitud" style="background:#F1F5F9;color:var(--azul);cursor:not-allowed">'+mesOpts+'</select></div>' +
+      '<div class="form-group"><label class="form-label">Año <span style="font-size:9px;color:var(--tq);font-weight:700">· AUTO</span></label><select id="it-anio" class="form-select" disabled title="Se completa solo según la Fecha Solicitud" style="background:#F1F5F9;color:var(--azul);cursor:not-allowed">'+anioOpts+'</select></div>' +
       '<div class="form-group"><label class="form-label">Solicitante</label><input type="text" id="it-solicitante" class="form-input" placeholder="Nombre del usuario"/></div>' +
       '<div class="form-group"><label class="form-label">Área del Solicitante</label><input type="text" id="it-area" class="form-input" placeholder="Ej: RRHH, Finanzas..."/></div>' +
       '<div class="form-group"><label class="form-label">Tipo de Servicio</label><select id="it-servicio" class="form-select">'+srvOpts+'</select></div>' +
@@ -6267,6 +6274,7 @@ function renderIngresoDatos(){
     html+='<div class="ingreso-recientes" style="margin-top:20px"><div class="section-title">Últimos tickets registrados</div>'+
       (recTkt.length?recTkt.map(r=>{const ec=r.estado==="Atendido"?"estado-ok":r.estado==="En progreso"?"estado-warn":"estado-bad";return'<div class="reciente-item"><span class="reciente-icon">🎫</span><div><div class="reciente-texto">'+esc(r.descripcion||"—")+'</div><div style="font-size:10px;color:var(--grisMed)">'+(r.fecha_solicitud||"")+'</div></div><span class="estado-badge '+ec+'">'+esc(r.estado)+'</span><span class="reciente-empresa">'+esc(r.empresa)+'</span></div>';}).join(""):'<div style="font-size:12px;color:var(--grisMed)">Sin registros recientes</div>')+
       '</div>';
+    setTimeout(()=>{ try{ ticketSyncMesAnio(); }catch(e){} },30);
   } else if(ingresoTab==="actividad"){
     const recAct=queryAll("SELECT a.descripcion,a.estado,a.avance_pct,emp.nombre AS empresa FROM actividades_tic a JOIN empresas emp ON emp.id=a.id_empresa ORDER BY a.creado_en DESC LIMIT 5");
     const trimOpts=["1T2025","2T2025","3T2025","4T2025","1T2026","2T2026"].map(t=>'<option'+(t==="1T2026"?" selected":"")+'>'+t+'</option>').join("");
@@ -11251,10 +11259,20 @@ window.ticBitSort = ticBitSort;
 function gId(id){ return document.getElementById(id); }
 function gVal(id){ return gId(id)?.value||""; }
 
+// Deriva Mes y Año de la Fecha del Evento y los refleja en las cajas (automáticas).
+function eventoSyncMesAnio(){
+  const f=gVal("ie-fecha"); if(!f||f.length<7) return;
+  const mesN=parseInt(f.slice(5,7)), anioN=f.slice(0,4);
+  const ms=gId("ie-mes"); if(ms && !isNaN(mesN)) ms.value=String(mesN);
+  const as=gId("ie-anio"); if(as){ if([...as.options].some(o=>o.value===anioN)) as.value=anioN; }
+}
+window.eventoSyncMesAnio=eventoSyncMesAnio;
+
 async function guardarEvento(){
   const empId=parseInt(gVal("ie-empresa")), fecha=gVal("ie-fecha"), desc=gVal("ie-desc").trim();
   if(!fecha||!desc){showError("Fecha y descripcion son obligatorios.");return;}
-  const mes=parseInt(gVal("ie-mes")), anio=parseInt(gVal("ie-anio")||"2026"), horas=parseFloat(gVal("ie-horas")||"0");
+  // Mes y Año se derivan de la fecha del evento (fuente de verdad).
+  const anio=parseInt(fecha.slice(0,4)), mes=parseInt(fecha.slice(5,7)), horas=parseFloat(gVal("ie-horas")||"0");
   try{
     const data={id_empresa:empId,semana:gVal("ie-semana"),mes:MESES_N[mes],anio,fecha_evento:fecha,
       descripcion:desc,informante:gVal("ie-informa"),horas_desconexion:horas,
@@ -11269,10 +11287,20 @@ async function guardarEvento(){
   }catch(e){showError("Error: "+e.message);}
 }
 
+// Deriva Mes y Año de la Fecha Solicitud y los refleja en las cajas (automáticas).
+function ticketSyncMesAnio(){
+  const f=gVal("it-fecha"); if(!f||f.length<7) return;
+  const mesN=parseInt(f.slice(5,7)), anioN=f.slice(0,4);
+  const ms=gId("it-mes"); if(ms && !isNaN(mesN)) ms.value=String(mesN);
+  const as=gId("it-anio"); if(as){ if([...as.options].some(o=>o.value===anioN)) as.value=anioN; }
+}
+window.ticketSyncMesAnio=ticketSyncMesAnio;
+
 async function guardarTicket(){
   const empId=parseInt(gVal("it-empresa")), fecha=gVal("it-fecha"), desc=gVal("it-desc").trim(), solic=gVal("it-solicitante").trim();
   if(!fecha||!desc||!solic){showError("Fecha, descripcion y solicitante son obligatorios.");return;}
-  const mes=parseInt(gVal("it-mes")), anio=parseInt(gVal("it-anio")||"2026");
+  // MES y AÑO se derivan SIEMPRE de la fecha (fuente de verdad) → nunca se descuadran del real.
+  const anio=parseInt(fecha.slice(0,4)), mes=parseInt(fecha.slice(5,7));
   const mesNom=MESES_N[mes];
   const sols=(window._sbCache?.solicitudes_tic||[]);
   const numAct=Math.max(0,...sols.filter(s=>s.id_empresa===empId&&s.anio===anio).map(s=>s.numero||0));
@@ -11458,7 +11486,15 @@ async function confirmarCierreMes(empId,anio,mes){
   closeModal();
   try{
     const usuario=(typeof sesion!=="undefined"&&sesion?.email)||null;
-    await cerrarMesTIC(empId,anio,mes,usuario);
+    const vals=await cerrarMesTIC(empId,anio,mes,usuario);
+    // Auditoría central del cierre (además del sello por-fila en kpi_mensual)
+    try{
+      const emp=(window._sbCache?.empresas||[]).find(e=>e.id===empId);
+      const resumen=(vals||[]).filter(v=>v&&v.valor!=null).map(v=>v.codigo+"="+v.valor+"%").join(" · ");
+      await supaPost("log_accesos",{email:usuario||"—",accion:"cierre_mes",
+        detalle:("TIC "+(emp?.codigo||"emp"+empId)+" · "+MESES_N[mes]+" "+anio+" cerrado (corte "+anio+"-"+String(mes).padStart(2,"0")+"-28) · "+resumen).slice(0,240)});
+      if(window._sbCache?.log_accesos) window._sbCache.log_accesos.unshift({email:usuario||"—",accion:"cierre_mes",detalle:"TIC "+MESES_N[mes]+" "+anio+" cerrado",creado_en:new Date().toISOString()});
+    }catch(e){ console.warn("[cierre log]",e); }
     (typeof showSuccess==="function")?showSuccess("✓ "+MESES_N[mes]+" "+anio+" cerrado — corte grabado"):null;
     renderContent();
   }catch(e){ console.error("[cierreMes]",e); showError("Error al cerrar el mes: "+(e?.message||e)); }
@@ -18405,37 +18441,4 @@ window.fin009MarcarPagado = fin009MarcarPagado;
 window.fin009EliminarCxP = fin009EliminarCxP;
 
 
-</script>
-    <script>
-(function () {
-  try {
-    var h = location.hash || '';
-    if (h.indexOf('eq_handoff=1') === -1) return;
-    var params = new URLSearchParams(h.slice(1));
-    var e64 = params.get('e'), p64 = params.get('p');
-    history.replaceState(null, '', location.pathname + location.search);
-    if (!e64 || !p64) return;
-    var dec = function (s) { return decodeURIComponent(escape(atob(s))); };
-    var email, pwd;
-    try { email = dec(e64); pwd = dec(p64); } catch (err) { return; }
-    e64 = p64 = null;
-    var tries = 120;
-    var go = function () {
-      var ie = document.getElementById('login-email');
-      var ip = document.getElementById('login-pwd');
-      var ready = ie && ip && typeof doLogin === 'function' && window._sbCache;
-      if (ready) {
-        ie.value = email; ip.value = pwd;
-        email = pwd = null;
-        doLogin();
-      } else if (--tries > 0) {
-        setTimeout(go, 250);
-      } else {
-        console.warn('EQ handoff: la plataforma no terminó de cargar.');
-      }
-    };
-    go();
-  } catch (e) { console.warn('EQ handoff error:', e); }
-})();
-</script>
-    </body></html>
+</script></body></html>
