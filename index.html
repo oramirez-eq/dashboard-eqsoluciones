@@ -7042,6 +7042,8 @@ function renderIngresoDatos(){
             : '') +
           '<input type="file" id="cej-firma-file" accept="application/pdf" class="form-input" style="padding:6px"/>' +
         '</div>' +
+        '<div class="form-group form-full"><label class="form-label">📝 Observaciones / Novedades <span style="font-size:9px;color:var(--grisMed);font-weight:500">(opcional)</span></label>' +
+          '<textarea id="cej-observaciones" class="form-input" rows="3" maxlength="1000" placeholder="Novedades presentadas en esta ejecución: inasistencias, cambios de facilitador, incidentes logísticos, feedback de participantes, etc.">'+esc(vEJ('observaciones'))+'</textarea></div>' +
       '</div>' +
       '<div style="display:flex;gap:10px;align-items:center;margin-top:14px">' +
         '<button class="submit-btn" onclick="capEjeGuardar('+(isEditEJ?editingEJ.id:'null')+')">💾 '+(isEditEJ?'Actualizar Ejecución':'Registrar Ejecución')+'</button>' +
@@ -7070,12 +7072,16 @@ function renderIngresoDatos(){
         '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">HRS</th>' +
         '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">INV</th>' +
         '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">📎</th>' +
+        '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:center">📝</th>' +
         '<th style="padding:6px 8px;font-size:10px;color:#6B87A8;font-weight:700;text-align:right">ACCIONES</th>' +
       '</tr></thead><tbody>';
       ejeRows.forEach(r=>{
         const firmaCell = r.firma_url
           ? '<a href="'+esc(r.firma_url)+'" target="_blank" rel="noopener" title="Ver PDF de firmas" style="color:#16A97A;text-decoration:none;font-size:13px">📄</a>'
           : '<span style="color:rgba(0,0,0,0.15)" title="Sin PDF cargado">—</span>';
+        const obsCell = r.observaciones
+          ? '<span title="'+esc(r.observaciones)+'" style="cursor:help;font-size:13px">📝</span>'
+          : '<span style="color:rgba(0,0,0,0.15)" title="Sin observaciones">—</span>';
         html += '<tr style="border-bottom:1px solid var(--borde)">' +
           '<td style="padding:6px 8px;font-size:10px">'+esc(empMapEJ[r.id_empresa]||"—")+'</td>' +
           '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#1E40AF">'+(r.asistentes_capacitados!=null?r.asistentes_capacitados:'—')+'</td>' +
@@ -7085,6 +7091,7 @@ function renderIngresoDatos(){
           '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">'+(r.horas!=null?parseFloat(r.horas).toFixed(1):'—')+'</td>' +
           '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">$'+(parseFloat(r.inversion||0)).toFixed(0)+'</td>' +
           '<td style="padding:6px 8px;text-align:center">'+firmaCell+'</td>' +
+          '<td style="padding:6px 8px;text-align:center">'+obsCell+'</td>' +
           '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
             '<button onclick="capEjeEditar('+r.id+')" title="Editar" style="background:transparent;border:1px solid var(--tq);color:var(--tq);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600;margin-right:3px">✏️</button>' +
             '<button onclick="capEjeEliminar('+r.id+')" title="Eliminar" style="background:transparent;border:1px solid #E03355;color:#E03355;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">🗑</button>' +
@@ -11289,6 +11296,7 @@ async function capEjeGuardar(idEditar){
       // ambos son true por definición. Los checkboxes del form se quitaron.
       planificado: true,
       ejecutado:   true,
+      observaciones: gV('cej-observaciones') || null,
       firma_url:   firmaUrl,
       firma_path:  firmaPath,
       actualizado_en:  new Date().toISOString(),
