@@ -11889,7 +11889,7 @@ function renderAdminUsuarios(usuarios){
       '<button class="action-btn" data-uid="'+u.id+'" onclick="modalEditarUsuario(parseInt(this.dataset.uid))" title="Editar usuario">✏</button>' +
       '<button class="action-btn" data-uid="'+u.id+'" onclick="modalPermisosUsuario(parseInt(this.dataset.uid))" title="Permisos · Empresa × Área">🔐</button>' +
       '<button class="action-btn" data-uid="'+u.id+'" data-email="'+esc(u.email)+'" onclick="modalResetPwd(parseInt(this.dataset.uid),this.dataset.email)" title="Reset password">🔑</button>' +
-      '<button class="action-btn danger" data-uid="'+u.id+'" data-act="'+u.activo+'" data-nom="'+esc(u.nombre)+'" onclick="toggleUsuario(parseInt(this.dataset.uid),parseInt(this.dataset.act),this.dataset.nom)" title="Activar/Desactivar">'+(u.activo?"⊘":"✓")+'</button>' +
+      '<button class="action-btn danger" data-uid="'+u.id+'" data-act="'+(u.activo?1:0)+'" data-nom="'+esc(u.nombre)+'" onclick="toggleUsuario(parseInt(this.dataset.uid),parseInt(this.dataset.act),this.dataset.nom)" title="Activar/Desactivar">'+(u.activo?"⊘":"✓")+'</button>' +
       '</td></tr>';
   });
   html += '</tbody></table></div></div>';
