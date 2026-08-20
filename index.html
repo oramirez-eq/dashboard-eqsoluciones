@@ -11863,20 +11863,67 @@ window.adminSetTab = adminSetTab;
 
 // ── Tab: USUARIOS ──────────────────────────────────────────────
 function renderAdminUsuarios(usuarios){
-  const total=usuarios.length, activos=usuarios.filter(u=>u.activo).length;
+  const total=usuarios.length, activos=usuarios.filter(u=>u.activo).length, inactivos=total-activos;
   const admins=usuarios.filter(u=>u.rol==="eq_admin").length, lideres=usuarios.filter(u=>u.rol==="eq_lider").length, gestores=usuarios.filter(u=>u.rol==="gestor_kpi").length, clientes=usuarios.filter(u=>u.rol==="cliente").length, gerentes=usuarios.filter(u=>u.rol==="cliente_gerente").length;
   const rolBadge=r=>r==="eq_admin"?'<span class="rol-badge rol-admin">Administrador EQ</span>':r==="eq_lider"?'<span class="rol-badge rol-lider">Líder EQ</span>':r==="gestor_kpi"?'<span class="rol-badge rol-gestor">Gestor KPI</span>':r==="cliente_gerente"?'<span class="rol-badge rol-gerente">Gerente</span>':'<span class="rol-badge rol-cliente">Cliente</span>';
 
+  // Estado de filtro (tarjetas) y orden (columnas), persistente entre renders
+  const F = window._usrFiltro || (window._usrFiltro = {tipo:'todos'});
+  const S = window._usrSort   || (window._usrSort   = {col:'nombre', dir:'asc'});
+
   let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div style="font-weight:700;color:var(--azul);font-size:14px;font-family:Raleway,sans-serif">Usuarios del Sistema</div><button class="action-btn primary" onclick="modalCrearUsuario()">＋ Nuevo Usuario</button></div>';
 
+  // Tarjetas-filtro: click filtra la lista; volver a hacer click limpia
+  const cards = [
+    {key:'todos',     l:"Total",        v:total,     c:"var(--tq)"},
+    {key:'activos',   l:"Activos",      v:activos,   c:"var(--verde)"},
+    {key:'inactivos', l:"Inactivos",    v:inactivos, c:"#E03355"},
+    {key:'admin',     l:"Admins",       v:admins,    c:"var(--azul)"},
+    {key:'lider',     l:"Líderes",      v:lideres,   c:"#0684C6"},
+    {key:'gestor',    l:"Gestores KPI", v:gestores,  c:"#E87A2A"},
+    {key:'gerente',   l:"Gerentes",     v:gerentes,  c:"#8B5CF6"},
+    {key:'cliente',   l:"Clientes",     v:clientes,  c:"var(--amarillo)"}
+  ];
   html += '<div class="admin-stats">';
-  [{l:"Total",v:total,c:"var(--tq)"},{l:"Activos",v:activos,c:"var(--verde)"},{l:"Admins",v:admins,c:"var(--azul)"},{l:"Líderes",v:lideres,c:"#0684C6"},{l:"Gestores KPI",v:gestores,c:"#E87A2A"},{l:"Gerentes",v:gerentes,c:"#8B5CF6"},{l:"Clientes",v:clientes,c:"var(--amarillo)"}].forEach(m=>{
-    html+='<div class="admin-stat"><div class="admin-stat-val" style="color:'+m.c+'">'+m.v+'</div><div class="admin-stat-lbl">'+m.l+'</div></div>';
+  cards.forEach(m=>{
+    const on = F.tipo===m.key;
+    html+='<div class="admin-stat" onclick="usrFiltrar(\''+m.key+'\')" title="Filtrar: '+m.l+'" style="cursor:pointer;transition:box-shadow .15s'+(on?';box-shadow:0 0 0 2px '+m.c+' inset':'')+'"><div class="admin-stat-val" style="color:'+m.c+'">'+m.v+'</div><div class="admin-stat-lbl">'+m.l+(on?' ✓':'')+'</div></div>';
   });
   html += '</div>';
 
-  html += '<div class="card gap-16"><div style="overflow-x:auto"><table class="tabla-detalle"><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Empresa</th><th>Último Acceso</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
-  usuarios.forEach(u=>{
+  // Aplicar filtro por tarjeta
+  const rolDe = {admin:'eq_admin', lider:'eq_lider', gestor:'gestor_kpi', gerente:'cliente_gerente', cliente:'cliente'};
+  let rows = usuarios.slice();
+  if(F.tipo==='activos')        rows = rows.filter(u=>u.activo);
+  else if(F.tipo==='inactivos') rows = rows.filter(u=>!u.activo);
+  else if(rolDe[F.tipo])        rows = rows.filter(u=>u.rol===rolDe[F.tipo]);
+
+  // Aplicar orden por columna
+  const sk = u => {
+    switch(S.col){
+      case 'email':   return (u.email||'').toLowerCase();
+      case 'rol':     return (u.rol||'').toLowerCase();
+      case 'empresa': return (u.empresa_nombre||'').toLowerCase();
+      case 'ultimo':  return u.ultimo_acceso||'';
+      case 'estado':  return u.activo?1:0;
+      default:        return (u.nombre||'').toLowerCase();
+    }
+  };
+  rows.sort((a,b)=>{ const ka=sk(a),kb=sk(b); let c=(typeof ka==='number'&&typeof kb==='number')?(ka-kb):String(ka).localeCompare(String(kb)); return S.dir==='asc'?c:-c; });
+
+  // Barra: cuántos se muestran + filtro activo + limpiar
+  const cardLbl = {todos:'Todos', activos:'Activos', inactivos:'Inactivos', admin:'Admins', lider:'Líderes', gestor:'Gestores KPI', gerente:'Gerentes', cliente:'Clientes'};
+  html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 8px 2px;font-size:12px;color:var(--grisMed)">Mostrando <b style="color:var(--azul)">'+rows.length+'</b> de '+total+
+    (F.tipo!=='todos'?' · filtro: <b style="color:var(--azul)">'+cardLbl[F.tipo]+'</b> <button onclick="usrFiltrar(\'todos\')" style="border:1px solid var(--borde);background:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;color:var(--grisMed)">✕ limpiar</button>':'')+'</div>';
+
+  const arrow = c => S.col===c ? (S.dir==='asc'?' ▲':' ▼') : '';
+  const th = (label,col) => '<th onclick="usrSort(\''+col+'\')" style="cursor:pointer;user-select:none'+(S.col===col?';color:var(--tq)':'')+'" title="Ordenar por '+label+'">'+label+arrow(col)+'</th>';
+
+  html += '<div class="card gap-16"><div style="overflow-x:auto"><table class="tabla-detalle"><thead><tr>'+
+    th('Nombre','nombre')+th('Email','email')+th('Rol','rol')+th('Empresa','empresa')+th('Último Acceso','ultimo')+th('Estado','estado')+'<th>Acciones</th></tr></thead><tbody>';
+  if(rows.length===0){
+    html += '<tr><td colspan="7" style="padding:18px;text-align:center;color:var(--grisMed);font-size:12px">Sin usuarios para este filtro.</td></tr>';
+  } else rows.forEach(u=>{
     const ini=u.nombre.split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase();
     html+='<tr style="'+(u.activo?"":"opacity:.6")+'">' +
       '<td><div style="display:flex;align-items:center;gap:9px"><div style="width:30px;height:30px;border-radius:50%;background:'+(u.activo?"var(--tq)":"#ccc")+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0">'+ini+'</div><span style="font-weight:600">'+esc(u.nombre)+'</span></div></td>' +
@@ -11895,6 +11942,23 @@ function renderAdminUsuarios(usuarios){
   html += '</tbody></table></div></div>';
   return html;
 }
+
+// Filtro por tarjeta (toggle): volver a hacer click en la activa limpia
+function usrFiltrar(tipo){
+  const F = window._usrFiltro || (window._usrFiltro = {tipo:'todos'});
+  F.tipo = (F.tipo===tipo && tipo!=='todos') ? 'todos' : tipo;
+  renderContent();
+}
+window.usrFiltrar = usrFiltrar;
+
+// Orden por columna (toggle asc/desc)
+function usrSort(col){
+  const S = window._usrSort || (window._usrSort = {col:'nombre', dir:'asc'});
+  if(S.col===col) S.dir = S.dir==='asc' ? 'desc' : 'asc';
+  else { S.col = col; S.dir = (col==='ultimo'||col==='estado') ? 'desc' : 'asc'; }
+  renderContent();
+}
+window.usrSort = usrSort;
 
 // ── Modal: Permisos multi-empresa × área ───────────────────────
 // Para clientes que atienden múltiples empresas con áreas habilitadas distintas.
